@@ -1,0 +1,22 @@
+pipeline: boosting
+inherits: configs/shared.yaml
+
+model:
+  backend: lightgbm
+  num_leaves: 63
+  learning_rate: 0.05
+  n_estimators: 300
+  subsample: 0.9
+  colsample_bytree: 0.9
+  class_weight: balanced
+
+features:
+  use_shared_classical: true
+  pca:
+    enabled: false
+    n_components: 256
+
+train:
+  n_jobs: -1
+  early_stopping_rounds: 30
+  require_wandb: true

@@ -1,0 +1,43 @@
+pipeline: dl
+inherits: configs/shared.yaml
+
+model:
+  # Primary (recommended for this task): CNN
+  backbone: efficientnet_b0
+  # CNN alternatives:
+  #   resnet18 | mobilenetv3_small_100 | convnext_tiny
+  # Transformer backup (timm):
+  #   vit_tiny_patch16_224 | vit_small_patch16_224 | deit_tiny_patch16_224
+  # If you switch to ViT, set backbone above to e.g. vit_tiny_patch16_224
+  # and optionally enable attn_impl below. Flash Attention is OPTIONAL and
+  # only relevant for Transformer backbones — skip on CNN.
+  family: cnn  # cnn | transformer  (document intent; train code may branch)
+  pretrained: true
+  dropout: 0.2
+  num_classes: null
+  # Transformer-only knobs (ignored for CNN)
+  transformer:
+    img_size: 224
+    patch_size: 16
+    # attn_impl: sdpa  # sdpa | eager | flash  (flash needs compatible torch/GPU)
+    use_flash_attn: false  # keep false unless ViT + verified Kaggle build
+
+train:
+  batch_size: 64
+  # For ViT-tiny on 2xT4 you can often keep 64; drop to 32 if OOM
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  epochs: 30
+  optimizer: adamw
+  scheduler: cosine
+  amp: true
+  require_wandb: true
+
+aug:
+  hflip: true
+  color_jitter: 0.1
+  random_resized_crop: false
+
+distributed:
+  backend: nccl
+  find_unused_parameters: false

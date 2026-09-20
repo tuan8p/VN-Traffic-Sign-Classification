@@ -1,0 +1,53 @@
+# LOCKED fair-compare keys — change only by team agreement
+project:
+  name: VN-Traffic-Sign-Classification
+  wandb_entity: P4AIDS_ML
+  wandb_project: BTL
+
+seed: 42
+
+data:
+  root: ${DATA_ROOT:}
+  raw_subdir: raw
+  processed_subdir: processed
+  image_extensions: [jpg, jpeg, png, bmp, webp]
+  layout: auto
+
+preprocess:
+  image_size: [224, 224]
+  color_mode: rgb
+  keep_aspect: true
+  cache_format: npy
+
+split:
+  strategy: stratified
+  ratios: { train: 0.7, val: 0.15, test: 0.15 }
+  use_provided_splits: false
+
+features:
+  hog:
+    enabled: true
+    orientations: 9
+    pixels_per_cell: [8, 8]
+    cells_per_block: [2, 2]
+  lbp:
+    enabled: true
+    p: 8
+    r: 1
+  color_hist:
+    enabled: true
+    bins: 32
+
+metrics:
+  primary: macro_f1
+  report: [accuracy, macro_f1, weighted_f1]
+
+train_common:
+  early_stopping_patience: 10
+  max_epochs_or_rounds: 100
+
+outputs:
+  root: outputs
+  zip_after_train: true
+  save_confusion_matrix: true
+  save_curves: true

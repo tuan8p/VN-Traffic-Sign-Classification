@@ -1,0 +1,6 @@
+runtime: local
+device: cuda
+num_workers: 4
+pin_memory: true
+gpus: 1
+mixed_precision: true

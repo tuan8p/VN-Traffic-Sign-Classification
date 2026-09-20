@@ -1,0 +1,8 @@
+runtime: kaggle_2xt4
+device: cuda
+num_workers: 2
+pin_memory: true
+gpus: 2
+mixed_precision: true
+ddp: true
+n_jobs: -1

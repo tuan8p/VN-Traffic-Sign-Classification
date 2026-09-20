@@ -1,0 +1,45 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "vn-tsc"
+version = "0.1.0"
+description = "Vietnamese traffic-sign classification — fair compare SVM / Boosting / DL (P4AIDS+ML)"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "MIT" }
+authors = [{ name = "P4AIDS_ML team" }]
+dependencies = [
+  "numpy>=1.24",
+  "pandas>=2.0",
+  "scikit-learn>=1.3",
+  "opencv-python-headless>=4.8",
+  "Pillow>=10.0",
+  "PyYAML>=6.0",
+  "tqdm>=4.66",
+  "matplotlib>=3.7",
+  "seaborn>=0.13",
+  "joblib>=1.3",
+  "wandb>=0.16",
+]
+
+[project.optional-dependencies]
+boosting = ["lightgbm>=4.0", "xgboost>=2.0"]
+dl = ["torch>=2.1", "torchvision>=0.16", "timm>=0.9"]
+demo = ["streamlit>=1.28"]
+dev = ["pytest>=7.4", "ruff>=0.1"]
+all = ["vn-tsc[boosting,dl,demo,dev]"]
+
+[project.scripts]
+vn-tsc-preprocess = "tools.run_preprocess:main"
+vn-tsc-train = "tools.run_train:main"
+vn-tsc-eval = "tools.run_eval:main"
+vn-tsc-pack = "tools.pack_outputs:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["vn_tsc*", "tools*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
