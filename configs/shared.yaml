@@ -48,6 +48,7 @@ train_common:
 
 outputs:
   root: outputs
-  zip_after_train: true
-  save_confusion_matrix: true
-  save_curves: true
+  # Off by default: local run.zip + figure artifacts are heavy / unwanted.
+  zip_after_train: false
+  save_confusion_matrix: false
+  save_curves: false
