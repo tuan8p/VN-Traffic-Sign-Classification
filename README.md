@@ -29,9 +29,23 @@ cp .env.example .env   # set WANDB_API_KEY + DATA_ROOT
 2. Open `notebooks/00_kaggle_bootstrap.ipynb`.
 3. Training **requires** W&B (`entity=P4AIDS_ML`, `project=BTL`). Preprocess / EDA / demo do **not**.
 
+## Data
+
+VNTS is a **YOLO detection** set; this project is classification, so preprocessing
+crops every bounding box into one labelled sample (8,334 boxes → 7,989 crops over
+52 classes). Read **[docs/DATA_CONTRACT.md](docs/DATA_CONTRACT.md)** before writing
+any pipeline — it specifies the arrays, the loaders and two rules that are easy to
+break (no horizontal flip; macro-F1 must be reported twice).
+
+```bash
+python -m tools.run_preprocess --data-root <path to VNTS>   # ~3 min, ~2.2 GB
+python -m analysis.eda                                      # figures for the report
+```
+
 ## Config
 
 - `configs/shared.yaml` — locked fair-compare keys
+- `configs/classes.csv` — the 52 class ids, sign codes, Vietnamese names, mirror pairs
 - `configs/pipelines/{svm,boosting,dl}.yaml` — per-pipeline
 - `configs/runtime/{local,kaggle_2xt4}.yaml` — devices / DDP
 - Notebooks may override; overrides land in `outputs/.../resolved_config.yaml`

@@ -1,0 +1,604 @@
+{
+  "n_crops_real": 7989,
+  "n_crops_augmented": 7451,
+  "n_source_images": 3186,
+  "n_classes": 52,
+  "imbalance_ratio": 338.0,
+  "rare_classes_below_30": [
+    1,
+    11,
+    15,
+    19,
+    21,
+    25,
+    28,
+    33,
+    42,
+    43,
+    44,
+    47,
+    51
+  ],
+  "n_rare_classes_below_30": 13,
+  "mirror_pairs": [
+    [
+      1,
+      37
+    ],
+    [
+      6,
+      50
+    ],
+    [
+      7,
+      32
+    ],
+    [
+      15,
+      21
+    ],
+    [
+      19,
+      49
+    ]
+  ],
+  "leakage": {
+    "ours": {
+      "n_straddling_groups": 0,
+      "n_affected_images": 0,
+      "affected_per_split": {}
+    },
+    "provided_by_authors": {
+      "n_straddling_groups": 76,
+      "n_affected_images": 211,
+      "affected_per_split": {
+        "train": 130,
+        "test": 81
+      }
+    }
+  },
+  "crop_size_stats": {
+    "min_side_px_percentiles": {
+      "1": 12.0,
+      "10": 17.0,
+      "25": 23.0,
+      "50": 34.0,
+      "75": 54.0,
+      "90": 84.0,
+      "99": 170.0
+    },
+    "area_px_percentiles": {
+      "1": 168.0,
+      "10": 324.0,
+      "25": 572.0,
+      "50": 1225.0,
+      "75": 3192.0,
+      "90": 8091.999999999999,
+      "99": 35844.95999999996
+    },
+    "share_below_32x32_px": 0.4426,
+    "share_below_16x16_px": 0.0591
+  },
+  "per_class": [
+    {
+      "class_id": 0,
+      "code": "00_W.224",
+      "name_vi": "Đường người đi bộ cắt ngang",
+      "train": 215,
+      "val": 47,
+      "test": 47,
+      "train_aug": 85,
+      "total_real": 309
+    },
+    {
+      "class_id": 1,
+      "code": "01_W.205c",
+      "name_vi": "Đường giao nhau (ngã ba bên phải)",
+      "train": 15,
+      "val": 3,
+      "test": 4,
+      "train_aug": 105,
+      "total_real": 22
+    },
+    {
+      "class_id": 2,
+      "code": "02_P.102",
+      "name_vi": "Cấm đi ngược chiều",
+      "train": 235,
+      "val": 53,
+      "test": 51,
+      "train_aug": 65,
+      "total_real": 339
+    },
+    {
+      "class_id": 3,
+      "code": "03_R.302a",
+      "name_vi": "Phải đi vòng sang bên phải",
+      "train": 235,
+      "val": 51,
+      "test": 51,
+      "train_aug": 65,
+      "total_real": 337
+    },
+    {
+      "class_id": 4,
+      "code": "04_W.205a",
+      "name_vi": "Giao nhau với đường đồng cấp",
+      "train": 23,
+      "val": 5,
+      "test": 5,
+      "train_aug": 161,
+      "total_real": 33
+    },
+    {
+      "class_id": 5,
+      "code": "05_W.207",
+      "name_vi": "Giao nhau với đường không ưu tiên",
+      "train": 178,
+      "val": 38,
+      "test": 38,
+      "train_aug": 122,
+      "total_real": 254
+    },
+    {
+      "class_id": 6,
+      "code": "06_W.201a",
+      "name_vi": "Chỗ ngoặt nguy hiểm vòng bên trái",
+      "train": 127,
+      "val": 28,
+      "test": 27,
+      "train_aug": 173,
+      "total_real": 182
+    },
+    {
+      "class_id": 7,
+      "code": "07_P.123a",
+      "name_vi": "Cấm rẽ trái",
+      "train": 169,
+      "val": 36,
+      "test": 36,
+      "train_aug": 131,
+      "total_real": 241
+    },
+    {
+      "class_id": 8,
+      "code": "08_I.434a",
+      "name_vi": "Bến xe buýt",
+      "train": 149,
+      "val": 32,
+      "test": 32,
+      "train_aug": 151,
+      "total_real": 213
+    },
+    {
+      "class_id": 9,
+      "code": "09_R.303",
+      "name_vi": "Nơi giao nhau chạy theo vòng xuyến",
+      "train": 29,
+      "val": 7,
+      "test": 7,
+      "train_aug": 203,
+      "total_real": 43
+    },
+    {
+      "class_id": 10,
+      "code": "10_P.130",
+      "name_vi": "Cấm dừng và đỗ xe",
+      "train": 710,
+      "val": 152,
+      "test": 152,
+      "train_aug": 0,
+      "total_real": 1014
+    },
+    {
+      "class_id": 11,
+      "code": "11_I.409",
+      "name_vi": "Chỗ quay xe",
+      "train": 18,
+      "val": 4,
+      "test": 4,
+      "train_aug": 126,
+      "total_real": 26
+    },
+    {
+      "class_id": 12,
+      "code": "12_R.415a",
+      "name_vi": "Biển gộp làn đường theo phương tiện",
+      "train": 196,
+      "val": 42,
+      "test": 42,
+      "train_aug": 104,
+      "total_real": 280
+    },
+    {
+      "class_id": 13,
+      "code": "13_W.245a",
+      "name_vi": "Đi chậm",
+      "train": 260,
+      "val": 56,
+      "test": 56,
+      "train_aug": 40,
+      "total_real": 372
+    },
+    {
+      "class_id": 14,
+      "code": "14_P.106a*Xe tai",
+      "name_vi": "Cấm xe tải",
+      "train": 59,
+      "val": 13,
+      "test": 13,
+      "train_aug": 241,
+      "total_real": 85
+    },
+    {
+      "class_id": 15,
+      "code": "15_W.203c",
+      "name_vi": "Đường bị thu hẹp về phía phải",
+      "train": 19,
+      "val": 5,
+      "test": 5,
+      "train_aug": 133,
+      "total_real": 29
+    },
+    {
+      "class_id": 16,
+      "code": "16_P.117*",
+      "name_vi": "Giới hạn chiều cao",
+      "train": 48,
+      "val": 11,
+      "test": 11,
+      "train_aug": 252,
+      "total_real": 70
+    },
+    {
+      "class_id": 17,
+      "code": "17_P.124a*",
+      "name_vi": "Cấm quay đầu",
+      "train": 73,
+      "val": 16,
+      "test": 16,
+      "train_aug": 227,
+      "total_real": 105
+    },
+    {
+      "class_id": 18,
+      "code": "18_P.107",
+      "name_vi": "Cấm ô tô khách và ô tô tải",
+      "train": 147,
+      "val": 32,
+      "test": 32,
+      "train_aug": 153,
+      "total_real": 211
+    },
+    {
+      "class_id": 19,
+      "code": "19_P.124d",
+      "name_vi": "Cấm rẽ phải và quay đầu",
+      "train": 19,
+      "val": 5,
+      "test": 5,
+      "train_aug": 133,
+      "total_real": 29
+    },
+    {
+      "class_id": 20,
+      "code": "20_P.103a",
+      "name_vi": "Cấm ô tô",
+      "train": 36,
+      "val": 8,
+      "test": 8,
+      "train_aug": 252,
+      "total_real": 52
+    },
+    {
+      "class_id": 21,
+      "code": "21_W.203b",
+      "name_vi": "Đường bị thu hẹp về phía trái",
+      "train": 7,
+      "val": 2,
+      "test": 2,
+      "train_aug": 49,
+      "total_real": 11
+    },
+    {
+      "class_id": 22,
+      "code": "22_W.221b",
+      "name_vi": "Gồ giảm tốc phía trước",
+      "train": 92,
+      "val": 20,
+      "test": 19,
+      "train_aug": 208,
+      "total_real": 131
+    },
+    {
+      "class_id": 23,
+      "code": "23_P.111",
+      "name_vi": "Cấm xe hai và ba bánh",
+      "train": 325,
+      "val": 70,
+      "test": 70,
+      "train_aug": 0,
+      "total_real": 465
+    },
+    {
+      "class_id": 24,
+      "code": "24_P.129",
+      "name_vi": "Kiểm tra",
+      "train": 39,
+      "val": 8,
+      "test": 9,
+      "train_aug": 261,
+      "total_real": 56
+    },
+    {
+      "class_id": 25,
+      "code": "25_S.505a*Xe may",
+      "name_vi": "Chỉ dành cho xe máy",
+      "train": 17,
+      "val": 4,
+      "test": 4,
+      "train_aug": 119,
+      "total_real": 25
+    },
+    {
+      "class_id": 26,
+      "code": "26_W.246a",
+      "name_vi": "Chướng ngoại vật phía trước",
+      "train": 53,
+      "val": 12,
+      "test": 12,
+      "train_aug": 247,
+      "total_real": 77
+    },
+    {
+      "class_id": 27,
+      "code": "27_W.225",
+      "name_vi": "Trẻ em",
+      "train": 24,
+      "val": 6,
+      "test": 6,
+      "train_aug": 168,
+      "total_real": 36
+    },
+    {
+      "class_id": 28,
+      "code": "28_S.505a*Xe tai va cong",
+      "name_vi": "Xe tải và xe công",
+      "train": 19,
+      "val": 4,
+      "test": 4,
+      "train_aug": 133,
+      "total_real": 27
+    },
+    {
+      "class_id": 29,
+      "code": "29_P.104",
+      "name_vi": "Cấm mô tô và xe máy",
+      "train": 31,
+      "val": 7,
+      "test": 7,
+      "train_aug": 217,
+      "total_real": 45
+    },
+    {
+      "class_id": 30,
+      "code": "30_S.505a*Xe tai",
+      "name_vi": "Chỉ dành cho xe tải",
+      "train": 95,
+      "val": 21,
+      "test": 22,
+      "train_aug": 205,
+      "total_real": 138
+    },
+    {
+      "class_id": 31,
+      "code": "31_Camera",
+      "name_vi": "Đường có camera giám sát",
+      "train": 26,
+      "val": 6,
+      "test": 6,
+      "train_aug": 182,
+      "total_real": 38
+    },
+    {
+      "class_id": 32,
+      "code": "32_P.123b",
+      "name_vi": "Cấm rẽ phải",
+      "train": 127,
+      "val": 27,
+      "test": 27,
+      "train_aug": 173,
+      "total_real": 181
+    },
+    {
+      "class_id": 33,
+      "code": "33_W.202b",
+      "name_vi": "Nhiều chỗ ngoặt nguy hiểm liên tiếp, chỗ đầu tiên sang phải",
+      "train": 13,
+      "val": 3,
+      "test": 3,
+      "train_aug": 91,
+      "total_real": 19
+    },
+    {
+      "class_id": 34,
+      "code": "34_B.8a",
+      "name_vi": "Cấm xe sơ-mi rơ-moóc",
+      "train": 55,
+      "val": 12,
+      "test": 12,
+      "train_aug": 245,
+      "total_real": 79
+    },
+    {
+      "class_id": 35,
+      "code": "35_P.137",
+      "name_vi": "Cấm rẽ trái và phải",
+      "train": 60,
+      "val": 14,
+      "test": 13,
+      "train_aug": 240,
+      "total_real": 87
+    },
+    {
+      "class_id": 36,
+      "code": "36_P.139",
+      "name_vi": "Cấm đi thẳng và rẽ phải",
+      "train": 48,
+      "val": 11,
+      "test": 16,
+      "train_aug": 252,
+      "total_real": 75
+    },
+    {
+      "class_id": 37,
+      "code": "37_W.205b",
+      "name_vi": "Đường giao nhau (ngã ba bên trái)",
+      "train": 33,
+      "val": 7,
+      "test": 7,
+      "train_aug": 231,
+      "total_real": 47
+    },
+    {
+      "class_id": 38,
+      "code": "38_P.127*50",
+      "name_vi": "Giới hạn tốc độ (50km/h)",
+      "train": 133,
+      "val": 28,
+      "test": 28,
+      "train_aug": 167,
+      "total_real": 189
+    },
+    {
+      "class_id": 39,
+      "code": "39_P.127*60",
+      "name_vi": "Giới hạn tốc độ (60km/h)",
+      "train": 320,
+      "val": 69,
+      "test": 70,
+      "train_aug": 0,
+      "total_real": 459
+    },
+    {
+      "class_id": 40,
+      "code": "40_P.127*80",
+      "name_vi": "Giới hạn tốc độ (80km/h)",
+      "train": 146,
+      "val": 32,
+      "test": 32,
+      "train_aug": 154,
+      "total_real": 210
+    },
+    {
+      "class_id": 41,
+      "code": "41_P.127*40",
+      "name_vi": "Giới hạn tốc độ (40km/h)",
+      "train": 183,
+      "val": 40,
+      "test": 40,
+      "train_aug": 117,
+      "total_real": 263
+    },
+    {
+      "class_id": 42,
+      "code": "42_R.301e",
+      "name_vi": "Các xe chỉ được rẽ trái",
+      "train": 15,
+      "val": 3,
+      "test": 3,
+      "train_aug": 105,
+      "total_real": 21
+    },
+    {
+      "class_id": 43,
+      "code": "43_W.239b*",
+      "name_vi": "Chiều cao tĩnh không thực tế",
+      "train": 19,
+      "val": 4,
+      "test": 4,
+      "train_aug": 133,
+      "total_real": 27
+    },
+    {
+      "class_id": 44,
+      "code": "44_W.233",
+      "name_vi": "Nguy hiểm khác",
+      "train": 2,
+      "val": 1,
+      "test": 0,
+      "train_aug": 14,
+      "total_real": 3
+    },
+    {
+      "class_id": 45,
+      "code": "45_I.407a",
+      "name_vi": "Đường một chiều",
+      "train": 136,
+      "val": 30,
+      "test": 29,
+      "train_aug": 164,
+      "total_real": 195
+    },
+    {
+      "class_id": 46,
+      "code": "46_P.131a",
+      "name_vi": "Cấm đỗ xe",
+      "train": 304,
+      "val": 66,
+      "test": 65,
+      "train_aug": 0,
+      "total_real": 435
+    },
+    {
+      "class_id": 47,
+      "code": "47_P.124b1",
+      "name_vi": "Cấm ô tô quay đầu xe (được rẽ trái)",
+      "train": 10,
+      "val": 3,
+      "test": 3,
+      "train_aug": 70,
+      "total_real": 16
+    },
+    {
+      "class_id": 48,
+      "code": "48_W.210",
+      "name_vi": "Giao nhau với đường sắt có rào chắn",
+      "train": 29,
+      "val": 6,
+      "test": 6,
+      "train_aug": 203,
+      "total_real": 41
+    },
+    {
+      "class_id": 49,
+      "code": "49_P.124c",
+      "name_vi": "Cấm rẽ trái và quay đầu xe",
+      "train": 155,
+      "val": 33,
+      "test": 33,
+      "train_aug": 145,
+      "total_real": 221
+    },
+    {
+      "class_id": 50,
+      "code": "50_W.201b",
+      "name_vi": "Chỗ ngoặt nguy hiểm vòng bên phải",
+      "train": 85,
+      "val": 18,
+      "test": 18,
+      "train_aug": 215,
+      "total_real": 121
+    },
+    {
+      "class_id": 51,
+      "code": "51_W.246c",
+      "name_vi": "Chú ý chướng ngại vật – vòng tránh sang bên phải",
+      "train": 3,
+      "val": 1,
+      "test": 1,
+      "train_aug": 21,
+      "total_real": 5
+    }
+  ]
+}

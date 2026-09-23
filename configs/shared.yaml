@@ -12,19 +12,55 @@ data:
   processed_subdir: processed
   image_extensions: [jpg, jpeg, png, bmp, webp]
   layout: auto
+  # VNTS ships as a YOLO detection set (images/ + labels/ + split_dataset/).
+  # We turn it into a classification set by cropping every bbox — see bbox_crop.
+  images_dirname: images
+  labels_dirname: labels
+  class_table: configs/classes.csv
+  num_classes: 52
 
 preprocess:
   image_size: [224, 224]
   color_mode: rgb
   keep_aspect: true
   cache_format: npy
+  # --- bbox -> classification crop (proposed by team-preprocessing) ---
+  bbox_crop:
+    enabled: true
+    # Expand each bbox by this fraction per side before cropping. Traffic signs
+    # need surrounding context for HOG/CNN to read the outline.
+    context_margin: 0.15
+    # Drop boxes whose ORIGINAL side is below this many pixels: below ~12px a
+    # sign carries no recoverable detail and only adds label noise.
+    min_box_px: 12
+    # Pad colour used by letterbox + out-of-frame margin (YOLO convention).
+    pad_value: 114
+    # Replicate edge pixels when the expanded box falls outside the image,
+    # so the sign stays centred instead of being shoved to a corner.
+    pad_mode: replicate
 
 split:
-  strategy: stratified
+  strategy: stratified_group
   ratios: { train: 0.7, val: 0.15, test: 0.15 }
   use_provided_splits: false
+  # --- leakage control (proposed by team-preprocessing) ---
+  # VNTS frames come from video: near-identical frames exist across the set, and
+  # several crops share one source image. Both must stay inside one split, so we
+  # group by perceptual-hash cluster of the SOURCE IMAGE and split by group.
+  group_by: source_image_cluster
+  dedup:
+    enabled: true
+    hash: dhash          # gradient hash — invariant to brightness/contrast
+    hash_size: 16        # -> 256-bit signature
+    max_hamming: 24      # <=24/256 counted as the same scene
+  # Guarantee every class is represented in train even when it is very rare.
+  min_train_per_class: 1
 
 features:
+  # Classical features run on a SMALLER image than the DL cache on purpose:
+  # HOG at 224x224 / 8px cells is 26,244-D, which makes an RBF SVM intractable.
+  # At 64x64 it is 1,764-D and keeps the same cell geometry.
+  input_size: [64, 64]
   hog:
     enabled: true
     orientations: 9
@@ -34,13 +70,41 @@ features:
     enabled: true
     p: 8
     r: 1
+    grid: [4, 4]         # spatial grid of LBP histograms, not one global hist
   color_hist:
     enabled: true
     bins: 32
+    color_space: hsv     # sign colour is semantic (red=cấm, blue=hiệu lệnh)
+  standardize: true      # StandardScaler fitted on TRAIN only, shared by all
+
+augment:
+  # Offline, TRAIN ONLY, shared by all three pipelines so the comparison stays
+  # fair. The untouched cache is always written too, for a with/without ablation.
+  enabled: true
+  target_count: 300        # classes at/above this get no extra copies
+  max_multiplier: 8        # a 3-sample class never becomes 300 clones
+  # hflip is FORBIDDEN: this set contains mirror-pair classes where flipping
+  # turns one valid sign into another (7<->32, 6<->50, 1<->37, 15<->21, 19<->49).
+  hflip: false
+  vflip: false
+  ops:
+    rotate_deg: 10
+    scale_jitter: 0.10
+    translate_frac: 0.05
+    brightness: 0.25
+    contrast: 0.25
+    saturation: 0.15     # hue is NEVER shifted — it carries the sign's meaning
+    gaussian_blur_sigma: 1.2
+    motion_blur_ksize: 7
+    gaussian_noise_std: 12
+    jpeg_quality: [40, 90]
 
 metrics:
   primary: macro_f1
   report: [accuracy, macro_f1, weighted_f1]
+  # 13 classes have <30 boxes (class 44 has 3). Macro-F1 over all 52 is noisy,
+  # so report it alongside macro-F1 restricted to classes above this count.
+  rare_class_threshold: 30
 
 train_common:
   early_stopping_patience: 10

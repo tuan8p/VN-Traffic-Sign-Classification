@@ -1,0 +1,53 @@
+class_id,sign_code,name_vi,mirror_of,confusable_group
+0,W.224,"Đường người đi bộ cắt ngang",,
+1,W.205c,"Đường giao nhau (ngã ba bên phải)",37,junction
+2,P.102,"Cấm đi ngược chiều",,
+3,R.302a,"Phải đi vòng sang bên phải",,
+4,W.205a,"Giao nhau với đường đồng cấp",,junction
+5,W.207,"Giao nhau với đường không ưu tiên",,junction
+6,W.201a,"Chỗ ngoặt nguy hiểm vòng bên trái",50,curve
+7,P.123a,"Cấm rẽ trái",32,turn_ban
+8,I.434a,"Bến xe buýt",,
+9,R.303,"Nơi giao nhau chạy theo vòng xuyến",,
+10,P.130,"Cấm dừng và đỗ xe",,parking
+11,I.409,"Chỗ quay xe",,
+12,R.415a,"Biển gộp làn đường theo phương tiện",,
+13,W.245a,"Đi chậm",,
+14,P.106a*Xe tải,"Cấm xe tải",,
+15,W.203c,"Đường bị thu hẹp về phía phải",21,narrow
+16,P.117*,"Giới hạn chiều cao",,
+17,P.124a*,"Cấm quay đầu",,uturn_ban
+18,P.107,"Cấm ô tô khách và ô tô tải",,
+19,P.124d,"Cấm rẽ phải và quay đầu",49,uturn_ban
+20,P.103a,"Cấm ô tô",,
+21,W.203b,"Đường bị thu hẹp về phía trái",15,narrow
+22,W.221b,"Gồ giảm tốc phía trước",,
+23,P.111,"Cấm xe hai và ba bánh",,
+24,P.129,"Kiểm tra",,
+25,S.505a*Xe máy,"Chỉ dành cho xe máy",,lane_s505a
+26,W.246a,"Chướng ngoại vật phía trước",,obstacle
+27,W.225,"Trẻ em",,
+28,S.505a*Xe tải và công,"Xe tải và xe công",,lane_s505a
+29,P.104,"Cấm mô tô và xe máy",,
+30,S.505a*Xe tải,"Chỉ dành cho xe tải",,lane_s505a
+31,Camera,"Đường có camera giám sát",,
+32,P.123b,"Cấm rẽ phải",7,turn_ban
+33,W.202b,"Nhiều chỗ ngoặt nguy hiểm liên tiếp, chỗ đầu tiên sang phải",,curve
+34,B.8a,"Cấm xe sơ-mi rơ-moóc",,
+35,P.137,"Cấm rẽ trái và phải",,turn_ban
+36,P.139,"Cấm đi thẳng và rẽ phải",,turn_ban
+37,W.205b,"Đường giao nhau (ngã ba bên trái)",1,junction
+38,P.127*50,"Giới hạn tốc độ (50km/h)",,speed_limit
+39,P.127*60,"Giới hạn tốc độ (60km/h)",,speed_limit
+40,P.127*80,"Giới hạn tốc độ (80km/h)",,speed_limit
+41,P.127*40,"Giới hạn tốc độ (40km/h)",,speed_limit
+42,R.301e,"Các xe chỉ được rẽ trái",,
+43,W.239b*,"Chiều cao tĩnh không thực tế",,
+44,W.233,"Nguy hiểm khác",,
+45,I.407a,"Đường một chiều",,
+46,P.131a,"Cấm đỗ xe",,parking
+47,P.124b1,"Cấm ô tô quay đầu xe (được rẽ trái)",,uturn_ban
+48,W.210,"Giao nhau với đường sắt có rào chắn",,
+49,P.124c,"Cấm rẽ trái và quay đầu xe",19,uturn_ban
+50,W.201b,"Chỗ ngoặt nguy hiểm vòng bên phải",6,curve
+51,W.246c,"Chú ý chướng ngại vật – vòng tránh sang bên phải",,obstacle
