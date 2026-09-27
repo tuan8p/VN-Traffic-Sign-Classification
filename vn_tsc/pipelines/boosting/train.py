@@ -114,7 +114,7 @@ class BoostingPipeline(BasePipeline):
                 lgb.record_evaluation(history),
                 lgb.log_evaluation(period=10),
                 lgb.early_stopping(
-                    stopping_rounds=int(train_cfg.get("early_stopping_rounds", 30)),
+                    stopping_rounds=int(train_cfg.get("early_stopping_rounds", 10)),
                     first_metric_only=True,
                 ),
             ]
