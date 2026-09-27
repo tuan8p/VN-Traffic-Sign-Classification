@@ -88,10 +88,21 @@ def test_crop_box_keeps_sign_centred_when_margin_leaves_the_frame():
     img = np.zeros((100, 100, 3), np.uint8)
     img[0:20, 0:20] = 255  # sign flush against the top-left corner
     geom = CropGeometry(0, 0, 20, 20, 20, 20, 100, 100)
-    out = crop_box(img, geom, (64, 64), context_margin=0.5, pad_mode="replicate")
+    out = crop_box(img, geom, (64, 64), context_margin=0.5, pad_value=114)
     assert out.shape == (64, 64, 3)
     # With the window centred on the sign, the middle must be sign, not background.
     assert out[32, 32].mean() > 200
+    # The out-of-frame corner must be pad colour. Replicate would have smeared
+    # the white sign into it, stretching the sign toward the corner.
+    assert (out[2, 2] == 114).all()
+
+
+def test_rotation_fills_exposed_corners_with_pad_colour():
+    from vn_tsc.data.augment import rotate_about
+
+    img = np.full((50, 50, 3), 255, np.uint8)
+    out = rotate_about(img, (25, 25), 30, pad_value=114, pad_mode="constant")
+    assert (out[0, 0] == 114).all()
 
 
 def test_box_geometry_matches_pixel_arithmetic():

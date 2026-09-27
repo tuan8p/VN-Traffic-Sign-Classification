@@ -24,6 +24,11 @@ log = setup_logger("eda")
 
 # Figures label classes by "id_code" rather than the Vietnamese name: the names
 # are long, and a Windows cp1252 console cannot print them at all.
+# Log-scale bars rise from the axis floor, and matplotlib autoscales that floor
+# to the smallest bar. A class with 2 crops then renders at zero height. 0.5
+# keeps counts of 1 visible too (the leakage plot has clusters counted once).
+LOG_FLOOR = 0.5
+
 SPLIT_COLORS = {"train": "#4C72B0", "val": "#DD8452", "test": "#55A868"}
 
 
@@ -49,6 +54,7 @@ def fig_class_distribution(md: pd.DataFrame, table: ClassTable, out_dir: Path) -
         ax.bar(labels, vals, bottom=bottom, label=split, color=SPLIT_COLORS[split])
         bottom += vals
     ax.set_yscale("log")
+    ax.set_ylim(bottom=LOG_FLOOR)
     ax.set_ylabel("crops (log scale)")
     ax.set_title(
         f"Class distribution — {len(order)} classes, "
@@ -73,6 +79,7 @@ def fig_augmentation_effect(md: pd.DataFrame, table: ClassTable, out_dir: Path) 
     ax.bar(labels, before, label="real", color="#4C72B0")
     ax.bar(labels, extra, bottom=before, label="offline augmented", color="#C44E52")
     ax.set_yscale("log")
+    ax.set_ylim(bottom=LOG_FLOOR)
     ax.set_ylabel("train crops (log scale)")
     after = before + extra
     ax.set_title(
@@ -132,6 +139,7 @@ def fig_leakage(report: dict[str, Any], out_dir: Path) -> None:
     sizes = sorted(hist)
     axes[0].bar([str(s) for s in sizes], [hist[s] for s in sizes], color="#4C72B0")
     axes[0].set_yscale("log")
+    axes[0].set_ylim(bottom=LOG_FLOOR)
     axes[0].set_xlabel("frames per near-duplicate cluster")
     axes[0].set_ylabel("clusters (log)")
     axes[0].set_title(

@@ -35,9 +35,12 @@ preprocess:
     min_box_px: 12
     # Pad colour used by letterbox + out-of-frame margin (YOLO convention).
     pad_value: 114
-    # Replicate edge pixels when the expanded box falls outside the image,
-    # so the sign stays centred instead of being shoved to a corner.
-    pad_mode: replicate
+    # Fill the part of the margin window that falls outside the frame with
+    # pad_value. Padding (rather than clamping) is what keeps the sign centred;
+    # "constant" does it without inventing pixels. "replicate" smears the frame's
+    # edge row outward, which stretches signs cut by the border into bars.
+    # ~4.7% of crops are affected. The same fill is used for augmentation rotation.
+    pad_mode: constant
 
 split:
   strategy: stratified_group
