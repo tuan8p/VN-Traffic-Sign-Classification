@@ -2,7 +2,7 @@
 project:
   name: VN-Traffic-Sign-Classification
   wandb_entity: P4AIDS_ML
-  wandb_project: BTL
+  wandb_project: quickstart_playground
 
 seed: 42
 
