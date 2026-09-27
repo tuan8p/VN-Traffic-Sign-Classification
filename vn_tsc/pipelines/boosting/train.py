@@ -305,7 +305,46 @@ class BoostingPipeline(BasePipeline):
             out_dir / "confusion_matrix.npy",
             confusion_matrix(labels, predictions, labels=table.ids),
         )
+        # A separate test run also supports checkpoints from older training runs.
+        # Validation reload checks remain local by default.
+        log_wandb = self.cfg.get("eval", {}).get(
+            "log_wandb", saved_cfg.get("train", {}).get("require_wandb", True)
+        )
+        if split == "test" and log_wandb:
+            self._log_test_results(saved_cfg, metrics, len(labels), out_dir)
         # Include evaluation results in the zip.
         if saved_cfg.get("outputs", {}).get("zip_after_train", True):
             zip_run_dir(self.run_dir)
         return metrics
+
+    def _log_test_results(self, saved_cfg, metrics, n_samples, out_dir):
+        project_cfg = saved_cfg.get("project", {})
+        run = require_wandb(
+            entity=project_cfg.get("wandb_entity", "P4AIDS_ML"),
+            project=project_cfg.get("wandb_project", "BTL"),
+            enabled=True,
+        )
+        try:
+            run.name = f"{self.run_dir.name}-test"
+            run.config.update({
+                **saved_cfg,
+                "eval": {
+                    "split": "test",
+                    "source_run_dir": str(self.run_dir.resolve()),
+                    "source_run_name": self.run_dir.name,
+                    "processed_root": load_json(out_dir / "evaluation_info.json")["processed_root"],
+                },
+            })
+            scores = {f"test/{key}": value for key, value in metrics.items()}
+            scores["test/n_samples"] = int(n_samples)
+            run.log(scores)
+            run.summary.update(scores)
+            save_json(
+                {"id": run.id, "url": run.url, "name": run.name},
+                out_dir / "wandb_run.json",
+            )
+        except BaseException:
+            run.finish(exit_code=1)
+            raise
+        else:
+            run.finish()
