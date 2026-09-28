@@ -83,12 +83,24 @@ def _affine(img: np.ndarray, rng: np.random.Generator, ops: dict[str, Any]) -> n
     return cv2.warpAffine(img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE)
 
 
-def rotate_about(img: np.ndarray, center: tuple[float, float], angle: float) -> np.ndarray:
-    """Rotate the full frame about a point, keeping real pixels around it."""
+def rotate_about(
+    img: np.ndarray,
+    center: tuple[float, float],
+    angle: float,
+    pad_value: int = 114,
+    pad_mode: str = "constant",
+) -> np.ndarray:
+    """Rotate the full frame about a point, keeping real pixels around it.
+
+    Corners exposed by the rotation are filled the same way crop_box fills an
+    out-of-frame margin, so a border sign never mixes two padding styles.
+    """
     h, w = img.shape[:2]
     m = cv2.getRotationMatrix2D(center, angle, 1.0)
+    border = cv2.BORDER_REPLICATE if pad_mode == "replicate" else cv2.BORDER_CONSTANT
     return cv2.warpAffine(
-        img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE
+        img, m, (w, h), flags=cv2.INTER_LINEAR, borderMode=border,
+        borderValue=(pad_value, pad_value, pad_value),
     )
 
 
@@ -220,16 +232,22 @@ def augment_from_source(
     rng: np.random.Generator,
     crop_fn: Any,
     ops: dict[str, Any] | None = None,
+    pad_value: int = 114,
+    pad_mode: str = "constant",
 ) -> tuple[np.ndarray, list[str]]:
     """Re-cut a jittered, rotated crop from the full frame, then jitter its look.
 
     `crop_fn(image, geometry) -> letterboxed crop` is injected so this module
-    does not have to know the project's crop settings.
+    does not have to know the project's crop settings; pad_value / pad_mode must
+    match what crop_fn uses.
     """
     ops = {**DEFAULT_OPS, **(ops or {})}
     jittered, angle = jitter_geometry(geom, rng, ops)
     center = ((jittered.x1 + jittered.x2) / 2.0, (jittered.y1 + jittered.y2) / 2.0)
-    rotated = rotate_about(img, center, angle) if abs(angle) > 1e-3 else img
+    rotated = (
+        rotate_about(img, center, angle, pad_value, pad_mode)
+        if abs(angle) > 1e-3 else img
+    )
     out, applied = apply_photometric(crop_fn(rotated, jittered), rng, ops)
     return out, ["window_jitter", "rotate", *applied]
 

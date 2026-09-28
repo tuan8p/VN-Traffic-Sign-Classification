@@ -72,6 +72,18 @@ interpolation, so the cache looks sharp but carries no detail the original lacke
 `metadata.csv` keeps `box_area_px` so accuracy can be broken down by real size —
 a far more informative table than one headline number.
 
+## 5b. Border signs: constant padding, not replicate
+
+4.7% of crops (375) have a margin window that leaves the frame; for 224 of them
+the sign itself touches the edge. Those pixels are filled with the pad colour
+(114), the same grey as the letterbox bars. An earlier version used replicate
+padding, which smears the frame's edge row outward: a triangle cut by the border
+grew a horizontal band, a red disc grew a red bar. Padding (rather than clamping)
+is what keeps the sign centred; constant does that without inventing pixels.
+Augmentation rotation fills exposed corners the same way. Aggregate accuracy did
+not move consistently with the switch (1-NN −0.3 pts, LinearSVC +0.3 pts), so this
+is a data-fidelity fix, not a score change.
+
 ## 6. Leakage: real, fixed, and smaller than expected
 
 VNTS frames come from video. Perceptual-hash clustering (dHash, 256-bit,
@@ -88,18 +100,17 @@ held equal, a naive random split scores *no better* than our leakage-free split:
 
 | model | group split (ours) | naive random split | difference |
 |---|---|---|---|
-| 1-NN (pure memorisation) | 97.44% / 96.66 macro-F1 | 96.87% / 96.39 | −0.6 / −0.3 pts |
-| LinearSVC + PCA-256 | 93.98% / 91.90 macro-F1 | 93.90% / 91.13 | −0.1 / −0.8 pts |
+| 1-NN (pure memorisation) | 97.11% / 96.15 macro-F1 | 97.03% / 96.70 | −0.1 / +0.6 pts |
+| LinearSVC + PCA-256 | 94.31% / 93.32 macro-F1 | 92.99% / 90.56 | −1.3 / −2.8 pts |
 
-The naive split is, if anything, marginally *worse* — the differences sit inside
-run-to-run noise. This holds even though in that naive split **79.5% of test crops
+The differences point in both directions and show no consistent inflation. This holds even though in that naive split **79.5% of test crops
 have a crop from the same photo sitting in train**: sibling crops from one street
 photo are usually *different* signs, so they do not help classify one another.
 
 And there is no residual leakage hiding at the sign level: cross-checking every
 test crop against every train crop, only **1 of 1,213 (0.1%)** has a near-identical
-partner in train, and removing it changes 1-NN accuracy by 0.00 points
-(97.44% either way).
+partner in train, and removing it leaves 1-NN accuracy unchanged
+(97.11% either way).
 
 > An earlier comparison appeared to show leakage inflating scores by ~0.5–1.0
 > points, but the naive split there had 6,776 training crops against our 5,564.
@@ -135,8 +146,13 @@ deliberately left out of the store: it is a per-pipeline key in `svm.yaml` and
 ## 8. Baseline, for calibration only
 
 LinearSVC + PCA-256 on the shared features, our split, no tuning:
-**93.98% accuracy, 91.90 macro-F1**. Offline augmentation moved it +0.2 / +0.1 —
-within noise for a linear model, though CNNs typically gain more from augmentation.
+**94.31% accuracy, 93.32 macro-F1** (1-NN: 97.11% / 96.15). An earlier run of the
+store gave offline augmentation +0.2 / +0.1 on this model — within noise for a
+linear model, though CNNs typically gain more from augmentation.
+
+Signs that touch the frame border are much harder: on the 54 test crops whose
+margin window leaves the frame, LinearSVC scores **72.2%** against 95.3% on the
+rest. Worth a line in the error analysis.
 This is a floor for the three real pipelines, not a result to report.
 
 ## 9. Config changes requiring a team vote

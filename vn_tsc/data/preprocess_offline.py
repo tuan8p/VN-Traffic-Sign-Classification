@@ -72,7 +72,7 @@ def run_offline_preprocess(
     margin = float(bbox.get("context_margin", 0.15))
     min_box_px = int(bbox.get("min_box_px", 12))
     pad_value = int(bbox.get("pad_value", 114))
-    pad_mode = str(bbox.get("pad_mode", "replicate"))
+    pad_mode = str(bbox.get("pad_mode", "constant"))
 
     base = find_dataset_root(
         data_root,
@@ -355,7 +355,7 @@ def _render_augmented_from_source(
     bbox = _cfg(cfg, "preprocess", "bbox_crop", default={}) or {}
     margin = float(bbox.get("context_margin", 0.15))
     pad_value = int(bbox.get("pad_value", 114))
-    pad_mode = str(bbox.get("pad_mode", "replicate"))
+    pad_mode = str(bbox.get("pad_mode", "constant"))
 
     def crop_fn(image: np.ndarray, geom) -> np.ndarray:
         return crop_box(image, geom, out_size, margin, pad_value, pad_mode)
@@ -380,7 +380,7 @@ def _render_augmented_from_source(
         for out_i in slots:
             entry = train_entries[order[out_i]]
             crop, applied = augment_from_source(
-                img, entry["geom"], rng, crop_fn, acfg.get("ops")
+                img, entry["geom"], rng, crop_fn, acfg.get("ops"), pad_value, pad_mode
             )
             images[out_i] = crop
             ops_used[out_i] = "+".join(applied)

@@ -103,13 +103,15 @@ def crop_box(
     out_size: tuple[int, int],
     context_margin: float = 0.15,
     pad_value: int = 114,
-    pad_mode: str = "replicate",
+    pad_mode: str = "constant",
 ) -> np.ndarray:
     """Cut one sign out of a full frame and letterbox it to out_size.
 
     When the margin pushes the window past the frame edge we pad instead of
     clamping, so the sign stays centred. Clamping would shove signs photographed
     at the image border off-centre and make them look different from the rest.
+    Constant fill is the default: replicate smears the border row outward, and
+    a sign cut by the frame edge then looks stretched into a bar.
     """
     img_h, img_w = img.shape[:2]
     mx = geom.box_w_px * context_margin
@@ -126,7 +128,7 @@ def crop_box(
 
     patch = img[cy1:cy2, cx1:cx2]
     if pad_l or pad_t or pad_r or pad_b:
-        border = PAD_MODES.get(pad_mode, cv2.BORDER_REPLICATE)
+        border = PAD_MODES.get(pad_mode, cv2.BORDER_CONSTANT)
         patch = cv2.copyMakeBorder(
             patch, pad_t, pad_b, pad_l, pad_r, border,
             value=(pad_value, pad_value, pad_value),
