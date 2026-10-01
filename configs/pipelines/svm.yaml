@@ -1,20 +1,49 @@
 pipeline: svm
 inherits: configs/shared.yaml
 
+data_source:
+  type: dev
+  processed_root: data/svm_dev_processed
+
+features:
+  backend: dev
+  cache: true
+  # HOG/LBP/color settings come from configs/shared.yaml.
+
+dim_reduction:
+  method: none
+  pca:
+    n_components: 0.95
+    whiten: false
+  lda:
+    n_components: null
+    solver: svd
+
 model:
   estimator: svc
   kernel: rbf
   C: 1.0
   gamma: scale
+  degree: 3
+  coef0: 0.0
   class_weight: balanced
   probability: false
-
-features:
-  use_shared_classical: true
-  pca:
-    enabled: false
-    n_components: 256
+  decision_function_shape: ovo
 
 train:
-  n_jobs: -1
   require_wandb: true
+  save_model: true
+
+evaluation:
+  evaluate_test_after_train: false
+
+tuning:
+  enabled: false
+  method: grid
+  cv_folds: 5
+  scoring: f1_macro
+  n_jobs: -1
+  n_iter: 20
+  param_grid:
+    svm__C: [0.1, 1.0, 10.0]
+    svm__gamma: [scale, auto]
