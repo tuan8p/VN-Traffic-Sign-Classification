@@ -22,8 +22,11 @@ from vn_tsc.pipelines.svm.tuning import build_search, tune_svm
 def cfg(tmp_path: Path) -> dict:
     repo = Path(__file__).resolve().parents[1]
     config = resolve_config(repo / "configs/pipelines/svm.yaml", repo / "configs/shared.yaml")
+    config["split"]["strategy"] = "stratified"
     config["preprocess"]["image_size"] = [32, 32]
+    config["data_source"]["type"] = "dev"
     config["data_source"]["processed_root"] = str(tmp_path / "processed")
+    config["features"]["backend"] = "dev"
     config["features"]["hog"]["enabled"] = False
     config["features"]["lbp"]["enabled"] = False
     config["features"]["color_hist"]["bins"] = 8

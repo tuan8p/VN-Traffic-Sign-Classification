@@ -14,7 +14,10 @@ from vn_tsc.pipelines.svm.data_adapter import load_svm_data
 def cfg(tmp_path: Path) -> dict:
     repo = Path(__file__).resolve().parents[1]
     config = resolve_config(repo / "configs/pipelines/svm.yaml", repo / "configs/shared.yaml")
+    config["data_source"]["type"] = "dev"
     config["data_source"]["processed_root"] = str(tmp_path / "processed")
+    config["features"]["backend"] = "dev"
+    config["features"]["cache"] = True
     config["features"]["hog"]["enabled"] = False
     config["features"]["lbp"]["enabled"] = False
     config["features"]["color_hist"]["bins"] = 8
@@ -77,7 +80,7 @@ def test_missing_image_and_empty_split(cfg: dict, processed: Path) -> None:
         load_svm_data(cfg)
 
 
-def test_shared_feature_backend_is_explicitly_unavailable(cfg: dict) -> None:
-    cfg["features"]["backend"] = "shared"
-    with pytest.raises(NotImplementedError, match="Role D"):
+def test_data_source_and_feature_backend_must_match(cfg: dict) -> None:
+    cfg["data_source"]["type"] = "shared"
+    with pytest.raises(ValueError, match="must match"):
         load_svm_data(cfg)

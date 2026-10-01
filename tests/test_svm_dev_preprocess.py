@@ -21,10 +21,12 @@ from vn_tsc.pipelines.svm.dev_preprocess import (
 @pytest.fixture
 def cfg() -> dict:
     repo_root = Path(__file__).resolve().parents[1]
-    return resolve_config(
+    config = resolve_config(
         pipeline_yaml=repo_root / "configs/pipelines/svm.yaml",
         shared_yaml=repo_root / "configs/shared.yaml",
     )
+    config["split"]["strategy"] = "stratified"
+    return config
 
 
 @pytest.fixture

@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from pathlib import Path
 from typing import Any
 
 import joblib
 import pandas as pd
-from sklearn.metrics import confusion_matrix
+from sklearn.metrics import confusion_matrix, f1_score
 from sklearn.pipeline import Pipeline
 
 from vn_tsc.eval.metrics import compute_classification_metrics
@@ -44,9 +45,14 @@ def _confusion_matrix_png(y_true, y_pred, class_names: list[str], path: Path) ->
 
 
 def _score_split(model: Pipeline, X, y, class_names: list[str],
+                 common_class_ids: list[int] | None,
                  figure: Path | None) -> dict[str, float]:
     predictions = model.predict(X)
     metrics = compute_classification_metrics(y, predictions, labels=list(range(len(class_names))))
+    if common_class_ids:
+        metrics["macro_f1_common"] = float(f1_score(
+            y, predictions, labels=common_class_ids, average="macro", zero_division=0,
+        ))
     if figure is not None:
         _confusion_matrix_png(y, predictions, class_names, figure)
     return metrics
@@ -62,6 +68,8 @@ def _model_details(model: Pipeline, data: SVMDataBundle, cfg: dict[str, Any]) ->
         "dim_reduction_config": cfg["dim_reduction"],
         "feature_combination": [name for name in ("hog", "lbp", "color_hist")
                                 if data.feature_config[name].get("enabled")],
+        "train_with_aug": (bool(cfg.get("train", {}).get("with_aug", False))
+                           if cfg["data_source"]["type"] == "shared" else False),
         "num_features_before_reduction": int(data.X_train.shape[1]),
         "num_classes": len(data.class_names),
         "class_names": data.class_names,
@@ -109,7 +117,8 @@ class SVMPipeline(BasePipeline):
                 model.fit(data.X_train, data.y_train)
             figure = (self.run_dir / "figures" / "confusion_matrix_val.png"
                       if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
-            val_metrics = _score_split(model, data.X_val, data.y_val, data.class_names, figure)
+            val_metrics = _score_split(model, data.X_val, data.y_val, data.class_names,
+                                       data.common_class_ids, figure)
             metrics: dict[str, Any] = {
                 "validation": val_metrics,
                 "train_samples": int(data.X_train.shape[0]),
@@ -124,7 +133,8 @@ class SVMPipeline(BasePipeline):
             if self.cfg.get("evaluation", {}).get("evaluate_test_after_train", False):
                 figure = (self.run_dir / "figures" / "confusion_matrix_test.png"
                           if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
-                metrics["test"] = _score_split(model, data.X_test, data.y_test, data.class_names, figure)
+                metrics["test"] = _score_split(model, data.X_test, data.y_test,
+                                                data.class_names, data.common_class_ids, figure)
                 metrics["test_samples"] = int(data.X_test.shape[0])
             if self.cfg.get("train", {}).get("save_model", True):
                 checkpoint = self.run_dir / "checkpoints" / "model.joblib"
@@ -134,6 +144,12 @@ class SVMPipeline(BasePipeline):
             metadata_dir = self.run_dir / "metadata"
             save_json(data.label_map, metadata_dir / "label_map.json")
             save_json(data.feature_config, metadata_dir / "feature_config.json")
+            if data.feature_report is not None:
+                save_json(data.feature_report, metadata_dir / "feature_report.json")
+                shutil.copy2(data.processed_root / "class_table.csv", metadata_dir / "class_table.csv")
+                save_json({"rare_class_threshold": self.cfg["metrics"]["rare_class_threshold"],
+                           "common_class_ids": data.common_class_ids},
+                          metadata_dir / "metric_policy.json")
             save_json(_model_details(model, data, self.cfg), metadata_dir / "model_metadata.json")
             save_json(metrics, self.run_dir / "metrics.json")
             log.info("Validation: accuracy=%.4f macro_f1=%.4f weighted_f1=%.4f",
@@ -167,7 +183,10 @@ class SVMPipeline(BasePipeline):
                 run.finish()
 
     def evaluate(self) -> dict[str, Any]:
-        """Evaluate a saved checkpoint on the held-out test split once selected."""
+        """Evaluate a saved checkpoint on val or the held-out test split."""
+        split = self.cfg.get("eval", {}).get("split", "test")
+        if split not in ("val", "test"):
+            raise ValueError("Evaluation split must be 'val' or 'test'")
         checkpoint = self.run_dir / "checkpoints" / "model.joblib"
         if not checkpoint.is_file():
             raise FileNotFoundError(f"SVM checkpoint not found: {checkpoint}")
@@ -176,13 +195,22 @@ class SVMPipeline(BasePipeline):
         saved_labels = load_json(self.run_dir / "metadata" / "label_map.json")
         if saved_features != data.feature_config or saved_labels != data.label_map:
             raise ValueError("Current feature configuration or label map differs from saved model")
+        if data.feature_report is not None:
+            saved_report = load_json(self.run_dir / "metadata" / "feature_report.json")
+            if saved_report != data.feature_report:
+                raise ValueError("Current shared feature report differs from saved model")
+            saved_table = (self.run_dir / "metadata" / "class_table.csv").read_bytes()
+            if saved_table != (data.processed_root / "class_table.csv").read_bytes():
+                raise ValueError("Current shared class table differs from saved model")
         model = joblib.load(checkpoint)
-        figure = (self.run_dir / "figures" / "confusion_matrix_test.png"
+        figure = (self.run_dir / "figures" / f"confusion_matrix_{split}.png"
                   if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
-        result = _score_split(model, data.X_test, data.y_test, data.class_names, figure)
+        X, y = getattr(data, f"X_{split}"), getattr(data, f"y_{split}")
+        result = _score_split(model, X, y, data.class_names,
+                              data.common_class_ids, figure)
         metrics_path = self.run_dir / "metrics.json"
         metrics = load_json(metrics_path) if metrics_path.exists() else {}
-        metrics["test"] = result
-        metrics["test_samples"] = int(data.X_test.shape[0])
+        metrics[split] = result
+        metrics[f"{split}_samples"] = int(X.shape[0])
         save_json(metrics, metrics_path)
         return result

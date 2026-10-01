@@ -42,6 +42,14 @@ python -m tools.run_preprocess --data-root <path to VNTS>   # ~3 min, ~2.2 GB
 python -m analysis.eda                                      # figures for the report
 ```
 
+For SVM on Kaggle, attach the [preprocessed VNTS dataset](https://www.kaggle.com/datasets/nguyntrungan/vnts-processed/). It already contains the shared crops, labels, metadata, and classical features, so preprocessing is unnecessary:
+
+```bash
+SVM_PROCESSED_ROOT=/kaggle/input/vnts-processed python -m tools.run_train --pipeline svm
+```
+
+`notebooks/02_train_svm.ipynb` detects this Kaggle input automatically.
+
 ## Config
 
 - `configs/shared.yaml` — locked fair-compare keys

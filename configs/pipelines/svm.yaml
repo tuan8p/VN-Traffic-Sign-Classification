@@ -2,13 +2,13 @@ pipeline: svm
 inherits: configs/shared.yaml
 
 data_source:
-  type: dev
-  processed_root: data/svm_dev_processed
+  type: shared
+  processed_root: ${SVM_PROCESSED_ROOT:data/processed}
 
 features:
-  backend: dev
-  cache: true
-  # HOG/LBP/color settings come from configs/shared.yaml.
+  backend: shared
+  # HOG/LBP/color matrices are written by tools.run_preprocess.
+  # Their parameters come from configs/shared.yaml.
 
 dim_reduction:
   method: none
@@ -33,6 +33,7 @@ model:
 train:
   require_wandb: true
   save_model: true
+  with_aug: true
 
 evaluation:
   evaluate_test_after_train: false
