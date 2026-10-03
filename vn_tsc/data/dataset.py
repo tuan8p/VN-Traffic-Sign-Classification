@@ -1,7 +1,19 @@
+"""Unified Dataset and split loading for VN Traffic Sign Classification.
+
+Provides:
+  - ``Sample`` and ``TrafficSignDataset``: Metadata index over the processed store.
+  - ``load_split``: Loads image crops uint8 (N, H, W, 3) RGB and integer labels for DL.
+  - ``load_features``: Loads shared HOG + LBP + colour features for SVM and Boosting.
+  - ``load_class_table``: Loads class metadata (names, mirror-pairs, confusable groups).
+  - ``NpyDataset``: PyTorch Dataset wrapper for DL DataLoader with online transforms.
+  - ``class_weights``: Inverse-frequency class weights for training.
+  - ``rare_classes``: List of class IDs with sample counts below a threshold.
+"""
 from __future__ import annotations
+
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 import numpy as np
 
@@ -10,6 +22,10 @@ from vn_tsc.data.classes import ClassTable
 DEFAULT_PROCESSED = "data/processed"
 REAL_SPLITS = ("train", "val", "test")
 
+
+# ===========================================================================
+# 1. Metadata Index & Sample
+# ===========================================================================
 
 @dataclass
 class Sample:
@@ -93,6 +109,10 @@ class TrafficSignDataset:
         return cls(index, root)
 
 
+# ===========================================================================
+# 2. Array Loading (Images & Features)
+# ===========================================================================
+
 def _load_pair(root: Path, split: str, mmap: bool) -> tuple[np.ndarray, np.ndarray]:
     x = root / "images" / f"X_{split}.npy"
     y = root / "images" / f"y_{split}.npy"
@@ -107,7 +127,7 @@ def load_split(
     with_aug: bool = False,
     mmap: bool = True,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Cached crops for one split: uint8 (N, H, W, 3) RGB and int16 labels.
+    """Cached crops for one split: uint8 (N, H, W, 3) RGB and integer labels.
 
     `with_aug=True` appends the shared offline augmentation and is only legal
     for train — val and test must stay untouched or the comparison is void.
@@ -119,10 +139,15 @@ def load_split(
         return X, y
     if split != "train":
         raise ValueError(f"augmented data exists for train only, not {split!r}")
-    if not (root / "images" / "X_train_aug.npy").exists():
+    xa_path = root / "images" / "X_train_aug.npy"
+    if not xa_path.exists():
         return X, y
     Xa, ya = _load_pair(root, "train_aug", mmap)
     return np.concatenate([np.asarray(X), np.asarray(Xa)]), np.concatenate([y, ya])
+
+
+# Alias for DL pipeline backward-compatibility
+load_npy_split = load_split
 
 
 def load_features(
@@ -193,3 +218,11 @@ def rare_classes(
         if not s.is_aug:
             counts[s.class_id] = counts.get(s.class_id, 0) + 1
     return sorted(c for c, n in counts.items() if n < threshold)
+
+
+def __getattr__(name: str) -> Any:
+    """Lazy-load DL-specific components without imposing torch on SVM / Boosting."""
+    if name == "NpyDataset":
+        from vn_tsc.pipelines.dl.dataset import NpyDataset
+        return NpyDataset
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
