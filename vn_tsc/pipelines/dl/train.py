@@ -312,6 +312,7 @@ def _eval_epoch(
 # Training stage (shared by Stage 1 and Stage 2)
 # ---------------------------------------------------------------------------
 
+
 def _run_stage(
     stage_name: str,
     model: nn.Module,
@@ -333,6 +334,7 @@ def _run_stage(
     epoch_offset: int = 0,
     global_best_score: float = -1.0,
     warmup_epochs: int = 0,
+    primary_metric: str = "macro_f1",
 ) -> tuple[dict[str, float], float]:
     """Run one training stage; returns (best_val_metrics_of_stage, updated_global_best_score)."""
     optimizer = _make_optimizer(model, lr, weight_decay)
@@ -375,23 +377,27 @@ def _run_stage(
         }
         history[stage_name].append(entry)
 
+        # Track score by primary_metric (default: macro_f1)
+        score = val_f1 if primary_metric == "macro_f1" else val_acc
+        metric_label = "MACRO F1" if primary_metric == "macro_f1" else "ACC"
+
         # Track best metrics for this stage & early stopping
-        if val_acc > stage_best_score:
-            stage_best_score = val_acc
+        if score > stage_best_score:
+            stage_best_score = score
             best_metrics = dict(val_metrics)
             patience_counter = 0
         else:
             patience_counter += 1
 
-        # Checkpoint saving across all stages: tracked by BEST GLOBAL VAL ACCURACY
-        is_global_best = val_acc > global_best_score
+        # Checkpoint saving across all stages: tracked by BEST GLOBAL SCORE
+        is_global_best = score > global_best_score
         if is_global_best:
-            global_best_score = val_acc
+            global_best_score = score
             if is_main:
                 _save_checkpoint(model, best_checkpoint_path)
 
         if is_main:
-            best_tag = f" -> [BEST VAL ACC: {val_acc:.4f}]" if is_global_best else ""
+            best_tag = f" -> [BEST VAL {metric_label}: {score:.4f}]" if is_global_best else ""
             print(
                 f"[{stage_name}] Epoch {epoch:2d}/{epochs:2d} (Global {global_epoch:2d}) | "
                 f"train_loss: {train_loss:.4f} | val_loss: {val_loss:.4f} | "
@@ -434,7 +440,6 @@ def _run_stage(
     return best_metrics, global_best_score
 
 
-
 def _save_checkpoint(model: nn.Module, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     # Unwrap DDP before saving.
@@ -447,11 +452,7 @@ def _save_checkpoint(model: nn.Module, path: Path) -> None:
 # ---------------------------------------------------------------------------
 
 class DLPipeline(BasePipeline):
-    """Two-stage fine-tuning of EfficientNetV2-B0 on Vietnamese traffic signs.
-
-    Stage 1: Head warm-up (backbone frozen, short).
-    Stage 2: Full fine-tune (all params unfrozen, smaller LR).
-    """
+    """Two-stage or single-stage fine-tuning of EfficientNetV2-B0 on Vietnamese traffic signs."""
 
     name = "dl"
 
@@ -486,6 +487,9 @@ class DLPipeline(BasePipeline):
         lr_stage2 = float(train_cfg.get("lr_stage2", lr / 10))
         warmup_epochs = int(train_cfg.get("warmup_epochs", 5))
         two_stage = bool(train_cfg.get("two_stage", False))
+        primary_metric = str(train_cfg.get("primary_metric", "macro_f1")).lower()
+        if primary_metric not in ("macro_f1", "accuracy"):
+            primary_metric = "macro_f1"
         epochs = int(train_cfg.get("epochs", int(train_cfg.get("stage1_epochs", 0)) + int(train_cfg.get("stage2_epochs", 30))))
         if epochs <= 0:
             epochs = 30
@@ -547,7 +551,8 @@ class DLPipeline(BasePipeline):
             run.config.update(cfg, allow_val_change=True)
             run.config.update(
                 {"num_classes": num_classes, "with_aug": with_aug,
-                 "epochs": epochs, "two_stage": two_stage},
+                 "epochs": epochs, "two_stage": two_stage,
+                 "primary_metric": primary_metric},
                 allow_val_change=True,
             )
             # Define metrics so W&B automatically builds unified single loss and accuracy charts vs epoch
@@ -604,6 +609,8 @@ class DLPipeline(BasePipeline):
                 rare_classes_list=rare_cls,
                 epoch_offset=0,
                 global_best_score=-1.0,
+                warmup_epochs=0,
+                primary_metric=primary_metric,
             )
 
             # ---- Stage 2: Full fine-tune ----
@@ -636,12 +643,14 @@ class DLPipeline(BasePipeline):
                 rare_classes_list=rare_cls,
                 epoch_offset=stage1_epochs,
                 global_best_score=global_best_score,
+                warmup_epochs=0,
+                primary_metric=primary_metric,
             )
 
-            # Best overall = max accuracy across both stages (selected by best val acc)
+            # Best overall = max primary_metric across both stages
             best_val = (
                 best_stage2
-                if best_stage2.get("accuracy", -1) >= best_stage1.get("accuracy", -1)
+                if best_stage2.get(primary_metric, -1) >= best_stage1.get(primary_metric, -1)
                 else best_stage1
             )
             stage1_metrics = best_stage1
@@ -650,10 +659,10 @@ class DLPipeline(BasePipeline):
             # ---- Full End-to-End Training (Single Stage) ----
             if is_main:
                 print(f"\n=======================================================", flush=True)
-                print(f"=== Full Training End-to-End ({epochs} epochs, lr={lr:.2e}, warmup={warmup_epochs}) ===", flush=True)
+                print(f"=== Full Training End-to-End ({epochs} epochs, lr={lr:.2e}, warmup={warmup_epochs}, metric={primary_metric}) ===", flush=True)
                 print(f"=======================================================\n", flush=True)
-                log.info("=== Full Training End-to-End (%d epochs, lr=%.2e, warmup=%d) ===",
-                         epochs, lr, warmup_epochs)
+                log.info("=== Full Training End-to-End (%d epochs, lr=%.2e, warmup=%d, metric=%s) ===",
+                         epochs, lr, warmup_epochs, primary_metric)
             unfreeze_backbone(raw_model)
             model = (
                 nn.parallel.DistributedDataParallel(
@@ -678,6 +687,7 @@ class DLPipeline(BasePipeline):
                 epoch_offset=0,
                 global_best_score=-1.0,
                 warmup_epochs=warmup_epochs,
+                primary_metric=primary_metric,
             )
             stage1_metrics = best_val
             stage2_metrics = best_val

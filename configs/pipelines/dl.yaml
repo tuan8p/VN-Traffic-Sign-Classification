@@ -23,6 +23,7 @@ train:
   weight_decay: 1.0e-4
   optimizer: adamw
   scheduler: cosine
+  primary_metric: macro_f1 # Select checkpoint and best metrics by validation macro_f1
   amp: true
   require_wandb: true
   with_aug: true           # append X_train_aug.npy from shared preprocessing
