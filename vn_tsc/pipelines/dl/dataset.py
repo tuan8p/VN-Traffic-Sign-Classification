@@ -39,8 +39,9 @@ class NpyDataset(Dataset):
         return len(self.y)
 
     def __getitem__(self, idx: int):
-        image = self.X[idx]  # uint8 (H, W, 3)
+        image = np.array(self.X[idx], copy=True)  # uint8 (H, W, 3) writable copy
         label = int(self.y[idx])
         if self.transform is not None:
             image = self.transform(image)
         return image, label
+

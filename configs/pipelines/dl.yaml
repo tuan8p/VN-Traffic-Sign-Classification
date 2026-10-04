@@ -37,7 +37,7 @@ aug:
 
 distributed:
   backend: nccl
-  find_unused_parameters: true
+  find_unused_parameters: false
 
 eval:
   auto_eval_test: true     # Automatically evaluate checkpoint_best.pt on test set after training

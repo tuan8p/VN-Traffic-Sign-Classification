@@ -9,11 +9,20 @@ repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
+import logging
 from vn_tsc.config.resolve import resolve_config
 from vn_tsc.runtime.run_dir import make_run_dir
 from vn_tsc.utils.seed import set_seed
 
 def main(argv=None) -> None:
+    is_main = int(os.environ.get("RANK", 0)) == 0
+    logging.basicConfig(
+        level=logging.INFO if is_main else logging.WARNING,
+        format="[%(asctime)s][%(levelname)s] %(message)s",
+        datefmt="%H:%M:%S",
+        force=True,
+    )
+
     p = argparse.ArgumentParser(description="Train one pipeline")
     p.add_argument("--pipeline", required=True, choices=["svm", "boosting", "dl"])
     p.add_argument("--config", default=None)

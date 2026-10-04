@@ -34,11 +34,17 @@ import logging
 import os
 from pathlib import Path
 from typing import Any
+import warnings
+
+warnings.filterwarnings("ignore", message=".*The given NumPy array is not writable.*")
+warnings.filterwarnings("ignore", message=".*find_unused_parameters=True was specified in DDP constructor.*")
+warnings.filterwarnings("ignore", message=".*barrier\\(\\): using the device under current context.*")
 
 import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, DistributedSampler
+from tqdm import tqdm
 
 if hasattr(torch, "amp") and hasattr(torch.amp, "autocast"):
     def _autocast(enabled: bool):
@@ -222,12 +228,23 @@ def _train_epoch(
     use_amp: bool,
     sampler: DistributedSampler | None,
     epoch: int,
+    total_epochs: int = 1,
+    stage_name: str = "train",
+    is_main: bool = True,
 ) -> float:
     model.train()
     if sampler is not None:
         sampler.set_epoch(epoch)
     total_loss = 0.0
-    for X_batch, y_batch in loader:
+    total_samples = 0
+    pbar = tqdm(
+        loader,
+        desc=f"[{stage_name}] Epoch {epoch:2d}/{total_epochs:2d}",
+        disable=not is_main,
+        leave=False,
+        dynamic_ncols=True,
+    )
+    for X_batch, y_batch in pbar:
         X_batch = X_batch.to(device, non_blocking=True)
         y_batch = y_batch.to(device, non_blocking=True)
         optimizer.zero_grad(set_to_none=True)
@@ -237,8 +254,12 @@ def _train_epoch(
         scaler.scale(loss).backward()
         scaler.step(optimizer)
         scaler.update()
-        total_loss += loss.item() * len(y_batch)
-    return total_loss / max(len(loader.dataset), 1)
+        bs = len(y_batch)
+        total_loss += loss.item() * bs
+        total_samples += bs
+        if is_main:
+            pbar.set_postfix({"loss": f"{loss.item():.4f}"})
+    return total_loss / max(total_samples, 1)
 
 
 @torch.no_grad()
@@ -315,6 +336,7 @@ def _run_stage(
         train_loss = _train_epoch(
             model, train_loader, optimizer, criterion, scaler,
             device, use_amp, sampler, epoch,
+            total_epochs=epochs, stage_name=stage_name, is_main=is_main,
         )
         scheduler.step()
 
@@ -322,6 +344,7 @@ def _run_stage(
             model, val_loader, criterion, device, use_amp, num_classes, rare_classes_list,
         )
         val_f1 = val_metrics["macro_f1"]
+        val_acc = val_metrics["accuracy"]
 
         entry = {
             "epoch": epoch, "stage": stage_name,
@@ -332,12 +355,31 @@ def _run_stage(
         }
         history[stage_name].append(entry)
 
+        # Checkpoint saving & early stopping (tracked across all ranks so DDP stays in sync).
+        is_best = val_f1 > best_f1
+        if is_best:
+            best_f1 = val_f1
+            best_metrics = dict(val_metrics)
+            patience_counter = 0
+            if is_main:
+                _save_checkpoint(model, best_checkpoint_path)
+        else:
+            patience_counter += 1
+
         if is_main:
+            best_tag = " -> [BEST SAVED]" if is_best else ""
+            print(
+                f"[{stage_name}] Epoch {epoch:2d}/{epochs:2d} | "
+                f"train_loss: {train_loss:.4f} | val_loss: {val_loss:.4f} | "
+                f"val_acc: {val_acc:.4f} | val_macro_f1: {val_f1:.4f} | "
+                f"lr: {scheduler.get_last_lr()[0]:.2e}{best_tag}",
+                flush=True,
+            )
             log.info(
                 "[%s] epoch %d/%d  train_loss=%.4f  val_loss=%.4f  "
-                "val_acc=%.4f  val_macro_f1=%.4f",
+                "val_acc=%.4f  val_macro_f1=%.4f%s",
                 stage_name, epoch, epochs, train_loss, val_loss,
-                val_metrics["accuracy"], val_f1,
+                val_acc, val_f1, best_tag,
             )
             if run is not None:
                 run.log({
@@ -348,23 +390,17 @@ def _run_stage(
                     "epoch": epoch,
                 })
 
-        # Checkpoint saving & early stopping (tracked across all ranks so DDP stays in sync).
-        if val_f1 > best_f1:
-            best_f1 = val_f1
-            best_metrics = dict(val_metrics)
-            patience_counter = 0
+        if patience_counter >= early_stopping_patience:
             if is_main:
-                _save_checkpoint(model, best_checkpoint_path)
-                log.info("[%s] ✓ new best macro_f1=%.4f → checkpoint saved", stage_name, best_f1)
-        else:
-            patience_counter += 1
-            if patience_counter >= early_stopping_patience:
-                if is_main:
-                    log.info(
-                        "[%s] early stopping at epoch %d (patience=%d)",
-                        stage_name, epoch, early_stopping_patience,
-                    )
-                break
+                print(
+                    f"[{stage_name}] early stopping at epoch {epoch} (patience={early_stopping_patience})",
+                    flush=True,
+                )
+                log.info(
+                    "[%s] early stopping at epoch %d (patience=%d)",
+                    stage_name, epoch, early_stopping_patience,
+                )
+            break
 
     return best_metrics
 
@@ -487,6 +523,9 @@ class DLPipeline(BasePipeline):
 
         # ---- Stage 1: Head warm-up ----
         if is_main:
+            print(f"\n=======================================================", flush=True)
+            print(f"=== Stage 1: Head warm-up ({stage1_epochs} epochs, lr={lr:.2e}) ===", flush=True)
+            print(f"=======================================================\n", flush=True)
             log.info("=== Stage 1: Head warm-up (%d epochs, lr=%.2e) ===",
                      stage1_epochs, lr)
         freeze_backbone(raw_model)
@@ -495,7 +534,7 @@ class DLPipeline(BasePipeline):
                 raw_model,
                 device_ids=[local_rank] if device.type == "cuda" else None,
                 output_device=local_rank if device.type == "cuda" else None,
-                find_unused_parameters=True,
+                find_unused_parameters=find_unused,
             )
             if use_ddp
             else raw_model
@@ -514,6 +553,9 @@ class DLPipeline(BasePipeline):
 
         # ---- Stage 2: Full fine-tune ----
         if is_main:
+            print(f"\n=======================================================", flush=True)
+            print(f"=== Stage 2: Full fine-tune ({stage2_epochs} epochs, lr={lr_stage2:.2e}) ===", flush=True)
+            print(f"=======================================================\n", flush=True)
             log.info("=== Stage 2: Full fine-tune (%d epochs, lr=%.2e) ===",
                      stage2_epochs, lr_stage2)
         unfreeze_backbone(raw_model)
@@ -558,6 +600,9 @@ class DLPipeline(BasePipeline):
         # Auto-evaluate on test split right after training completes
         auto_eval = bool(cfg.get("eval", {}).get("auto_eval_test", True))
         if auto_eval and is_main:
+            print(f"\n=======================================================", flush=True)
+            print(f"=== Running automatic evaluation on test split ===", flush=True)
+            print(f"=======================================================\n", flush=True)
             log.info("=== Running automatic evaluation on test split ===")
             try:
                 test_metrics = self.evaluate(split="test")
@@ -571,6 +616,13 @@ class DLPipeline(BasePipeline):
                     cm_test_path = self.run_dir / "confusion_matrix_test.png"
                     if cm_test_path.is_file():
                         run.summary["confusion_matrix_test"] = str(cm_test_path)
+                print(
+                    f"\n[Test Result] Accuracy: {test_metrics['accuracy']:.4f} "
+                    f"({test_metrics['accuracy']*100:.2f}%) | "
+                    f"Macro F1: {test_metrics['macro_f1']:.4f} | "
+                    f"Weighted F1: {test_metrics['weighted_f1']:.4f}\n",
+                    flush=True,
+                )
             except Exception as e:
                 log.error("Failed to run auto-evaluation on test set: %s", e)
 
