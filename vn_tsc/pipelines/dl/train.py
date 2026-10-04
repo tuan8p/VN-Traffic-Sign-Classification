@@ -82,10 +82,44 @@ def _is_main_process() -> bool:
     return int(os.environ.get("RANK", 0)) == 0
 
 
-def _device(cfg: dict[str, Any]) -> torch.device:
+def _setup_distributed(cfg: dict[str, Any]) -> tuple[bool, int, int]:
+    """Initialize torch.distributed if launched via torchrun or multi-GPU environment.
+
+    Returns:
+        (use_ddp, rank, local_rank)
+    """
+    world_size_env = os.environ.get("WORLD_SIZE")
+    rank_env = os.environ.get("RANK")
+    local_rank_env = os.environ.get("LOCAL_RANK")
+
+    if world_size_env is not None and int(world_size_env) > 1:
+        rank = int(rank_env or 0)
+        local_rank = int(local_rank_env or 0)
+        backend = str(cfg.get("distributed", {}).get("backend", "nccl" if torch.cuda.is_available() else "gloo"))
+        if not (torch.distributed.is_available() and torch.distributed.is_initialized()):
+            if torch.cuda.is_available():
+                torch.cuda.set_device(local_rank)
+            torch.distributed.init_process_group(
+                backend=backend,
+                init_method="env://",
+            )
+        return True, rank, local_rank
+    elif torch.distributed.is_available() and torch.distributed.is_initialized():
+        rank = torch.distributed.get_rank()
+        local_rank = int(local_rank_env or rank)
+        return True, rank, local_rank
+
+    return False, 0, 0
+
+
+def _device(cfg: dict[str, Any], local_rank: int = 0) -> torch.device:
     runtime = cfg.get("runtime_cfg", {})
-    device_str = runtime.get("device", "cuda" if torch.cuda.is_available() else "cpu")
-    return torch.device(device_str)
+    device_str = runtime.get("device", None)
+    if device_str:
+        return torch.device(device_str)
+    if torch.cuda.is_available():
+        return torch.device(f"cuda:{local_rank}")
+    return torch.device("cpu")
 
 
 def _num_workers(cfg: dict[str, Any]) -> int:
@@ -356,16 +390,23 @@ class DLPipeline(BasePipeline):
         cfg = self.cfg
         train_cfg = cfg.get("train", {})
 
+        use_ddp, rank, local_rank = _setup_distributed(cfg)
+        is_main = (rank == 0)
+
+        # Synchronize run_dir across all DDP ranks so everyone logs/saves to identical path
+        if use_ddp:
+            obj = [str(self.run_dir)] if is_main else [None]
+            torch.distributed.broadcast_object_list(obj, src=0)
+            self.run_dir = Path(obj[0])
+
         entity = cfg.get("project", {}).get("wandb_entity", "P4AIDS_ML")
         project = cfg.get("project", {}).get("wandb_project", "BTL")
         run = require_wandb(
             entity=entity, project=project,
-            enabled=bool(train_cfg.get("require_wandb", True)),
+            enabled=bool(train_cfg.get("require_wandb", True)) and is_main,
         )
 
-        is_main = _is_main_process()
-        use_ddp = torch.distributed.is_available() and torch.distributed.is_initialized()
-        device = _device(cfg)
+        device = _device(cfg, local_rank=local_rank)
         use_amp = bool(train_cfg.get("amp", True)) and device.type == "cuda"
         num_workers = _num_workers(cfg)
         pin_memory = _pin_memory(cfg) and device.type == "cuda"
@@ -381,10 +422,11 @@ class DLPipeline(BasePipeline):
         )
         with_aug = bool(train_cfg.get("with_aug", True))
 
-        self.run_dir.mkdir(parents=True, exist_ok=True)
-        save_yaml(cfg, self.run_dir / "resolved_config.yaml")
-        log_dir = self.run_dir / "logs"
-        log_dir.mkdir(exist_ok=True)
+        if is_main:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            save_yaml(cfg, self.run_dir / "resolved_config.yaml")
+            log_dir = self.run_dir / "logs"
+            log_dir.mkdir(exist_ok=True)
 
         # ---- Data ----
         if is_main:
@@ -419,6 +461,8 @@ class DLPipeline(BasePipeline):
         if use_ddp:
             model = nn.parallel.DistributedDataParallel(
                 model,
+                device_ids=[local_rank] if device.type == "cuda" else None,
+                output_device=local_rank if device.type == "cuda" else None,
                 find_unused_parameters=bool(
                     cfg.get("distributed", {}).get("find_unused_parameters", False)
                 ),
@@ -496,13 +540,32 @@ class DLPipeline(BasePipeline):
             "stage2_best": best_stage2,
         }
 
+        # Auto-evaluate on test split right after training completes
+        auto_eval = bool(cfg.get("eval", {}).get("auto_eval_test", True))
+        if auto_eval and is_main:
+            log.info("=== Running automatic evaluation on test split ===")
+            try:
+                test_metrics = self.evaluate(split="test")
+                metrics["test"] = test_metrics
+                if "samples" in test_metrics:
+                    metrics["test_samples"] = test_metrics["samples"]
+                if run is not None:
+                    run.summary.update({
+                        f"test/{k}": v for k, v in test_metrics.items() if isinstance(v, (int, float))
+                    })
+                    cm_test_path = self.run_dir / "confusion_matrix_test.png"
+                    if cm_test_path.is_file():
+                        run.summary["confusion_matrix_test"] = str(cm_test_path)
+            except Exception as e:
+                log.error("Failed to run auto-evaluation on test set: %s", e)
+
         if is_main:
             save_json(history, self.run_dir / "history.json")
             save_json(metrics, self.run_dir / "metrics.json")
 
             if run is not None:
                 run.summary.update({
-                    f"best_val/{k}": v for k, v in best_val.items()
+                    f"best_val/{k}": v for k, v in best_val.items() if isinstance(v, (int, float))
                 })
                 run.summary["checkpoint"] = str(checkpoint_path)
 
@@ -510,6 +573,13 @@ class DLPipeline(BasePipeline):
                 "Training complete. Best val → accuracy=%.4f macro_f1=%.4f",
                 best_val.get("accuracy", 0), best_val.get("macro_f1", 0),
             )
+            if "test" in metrics:
+                log.info(
+                    "Test evaluation → accuracy=%.4f macro_f1=%.4f (common=%.4f)",
+                    metrics["test"].get("accuracy", 0),
+                    metrics["test"].get("macro_f1", 0),
+                    metrics["test"].get("macro_f1_common", metrics["test"].get("macro_f1", 0)),
+                )
 
             if cfg.get("outputs", {}).get("save_curves", True):
                 try:
@@ -524,17 +594,20 @@ class DLPipeline(BasePipeline):
         if run is not None:
             run.finish()
 
+        if use_ddp and torch.distributed.is_initialized():
+            torch.distributed.barrier()
+
         return metrics
 
-    def evaluate(self) -> dict[str, Any]:
+    def evaluate(self, split: str | None = None) -> dict[str, Any]:
         """Evaluate saved checkpoint on val or test split.
 
-        Reads ``eval.split`` from config (default ``"test"``).
+        Reads ``eval.split`` from config (default ``"test"``) or uses explicit ``split``.
         """
         cfg = self.cfg
-        split = cfg.get("eval", {}).get("split", "test")
+        split = split or cfg.get("eval", {}).get("split", "test")
         if split not in ("val", "test"):
-            raise ValueError("eval.split must be 'val' or 'test'")
+            raise ValueError(f"eval.split must be 'val' or 'test', got '{split}'")
 
         checkpoint_path = self.run_dir / "checkpoints" / "checkpoint_best.pt"
         if not checkpoint_path.is_file():
@@ -570,6 +643,7 @@ class DLPipeline(BasePipeline):
         _, metrics, preds, targets = _eval_epoch(
             model, loader, criterion, device, use_amp, num_classes, rare_cls
         )
+        metrics["samples"] = int(len(X))
 
         log.info(
             "Evaluate [%s] → accuracy=%.4f macro_f1=%.4f (common=%.4f)",
@@ -599,3 +673,4 @@ class DLPipeline(BasePipeline):
         save_json(existing, metrics_path)
 
         return metrics
+

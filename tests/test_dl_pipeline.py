@@ -262,3 +262,84 @@ def test_curves_and_confusion_matrix_plots(tmp_path):
     result_path = confusion_matrix_png(y_true, y_pred, class_names, cm_path)
     assert Path(result_path).exists()
     assert Path(result_path).stat().st_size > 0
+
+
+# ===========================================================================
+# 7. End-to-End Pipeline fit() with Auto-Eval Test
+# ===========================================================================
+
+def test_dl_pipeline_fit_and_auto_eval(tmp_path):
+    """Verify that DLPipeline.fit() runs training and automatically evaluates test split."""
+    from vn_tsc.pipelines.dl.train import DLPipeline
+
+    # Set up mock processed directory
+    data_dir = tmp_path / "data" / "processed"
+    images_dir = data_dir / "images"
+    images_dir.mkdir(parents=True, exist_ok=True)
+
+    np.save(images_dir / "X_train.npy", np.zeros((6, 32, 32, 3), dtype=np.uint8))
+    np.save(images_dir / "y_train.npy", np.array([0, 1, 2, 0, 1, 2], dtype=np.int64))
+    np.save(images_dir / "X_val.npy", np.zeros((3, 32, 32, 3), dtype=np.uint8))
+    np.save(images_dir / "y_val.npy", np.array([0, 1, 2], dtype=np.int64))
+    np.save(images_dir / "X_test.npy", np.zeros((3, 32, 32, 3), dtype=np.uint8))
+    np.save(images_dir / "y_test.npy", np.array([0, 1, 2], dtype=np.int64))
+
+    class_table_content = (
+        "class_id,sign_code,name_vi,name_en,shape,category,is_directional,mirror_pair_id\n"
+        "0,P.101,Cấm,Prohibition,circle,cấm,False,\n"
+        "1,W.201,Nguy hiểm,Warning,triangle,nguy_hiểm,False,\n"
+        "2,R.301,Hiệu lệnh,Mandatory,circle,hiệu_lệnh,False,\n"
+    )
+    (data_dir / "class_table.csv").write_text(class_table_content, encoding="utf-8")
+
+    run_dir = tmp_path / "runs" / "test_run"
+    cfg = {
+        "pipeline": "dl",
+        "seed": 42,
+        "model": {"backbone": "tf_efficientnetv2_b0", "pretrained": False, "dropout": 0.0, "num_classes": 3},
+        "train": {
+            "batch_size": 2,
+            "stage1_epochs": 1,
+            "lr": 1e-3,
+            "stage2_epochs": 1,
+            "lr_stage2": 1e-4,
+            "weight_decay": 0.0,
+            "amp": False,
+            "require_wandb": False,
+            "with_aug": False,
+        },
+        "eval": {
+            "auto_eval_test": True,
+            "split": "test",
+        },
+        "aug": {"hflip": False, "color_jitter": 0.0, "random_resized_crop": False},
+        "data": {"processed_root": str(data_dir)},
+        "runtime_cfg": {"num_workers": 0, "device": "cpu", "pin_memory": False},
+        "outputs": {
+            "root": str(tmp_path / "runs"),
+            "zip_after_train": False,
+            "save_confusion_matrix": True,
+            "save_curves": True,
+        },
+    }
+
+    pipeline = DLPipeline(cfg, run_dir)
+    metrics = pipeline.fit()
+
+    assert "validation" in metrics
+    assert "accuracy" in metrics["validation"]
+    assert "macro_f1" in metrics["validation"]
+
+    # Verify auto-evaluation was triggered!
+    assert "test" in metrics, "Auto-eval on test set should be present in fit() return metrics"
+    assert "accuracy" in metrics["test"]
+    assert "macro_f1" in metrics["test"]
+    assert (run_dir / "confusion_matrix_test.png").exists(), "Test confusion matrix should be saved"
+    assert (run_dir / "metrics.json").exists()
+    assert (run_dir / "checkpoints" / "checkpoint_best.pt").exists()
+
+    # Verify separate standalone eval command (tools.run_eval) works cleanly on the saved checkpoint:
+    from tools.run_eval import main as run_eval_main
+    run_eval_main(["--pipeline", "dl", "--run-dir", str(run_dir), "--split", "test"])
+    run_eval_main(["--pipeline", "dl", "--run-dir", str(run_dir), "--split", "val"])
+
