@@ -1,4 +1,5 @@
 from __future__ import annotations
+
 import argparse
 import sys
 from pathlib import Path
@@ -7,17 +8,17 @@ repo_root = Path(__file__).resolve().parents[1]
 if str(repo_root) not in sys.path:
     sys.path.insert(0, str(repo_root))
 
-from vn_tsc.config.resolve import resolve_config
 from vn_tsc.utils.io import load_yaml
 
 
 def main(argv=None) -> None:
-    p = argparse.ArgumentParser(description="Evaluate a saved DL (or SVM/Boosting) checkpoint")
+    p = argparse.ArgumentParser(description="Evaluate a saved checkpoint (DL, SVM, or Boosting)")
     p.add_argument("--pipeline", required=True, choices=["svm", "boosting", "dl"])
     p.add_argument("--run-dir", default=None, help="Path to run output directory (default: latest in outputs/<pipeline>)")
     p.add_argument("--split", default="test", choices=["val", "test"])
     p.add_argument("--shared", default="configs/shared.yaml")
     p.add_argument("--data-root", default=None, help="Override data.processed_root for evaluation")
+    p.add_argument("--processed-root", default=None, help="Alias for --data-root")
     args = p.parse_args(argv)
 
     if args.run_dir is None or args.run_dir == "latest":
@@ -33,12 +34,13 @@ def main(argv=None) -> None:
     if not resolved_cfg_path.exists():
         raise FileNotFoundError(f"resolved_config.yaml not found in {run_dir}")
 
-    # Re-resolve from saved config so overrides are preserved.
     cfg = load_yaml(resolved_cfg_path)
     cfg.setdefault("eval", {})["split"] = args.split
-    if args.data_root:
-        cfg.setdefault("data", {})["processed_root"] = args.data_root
 
+    data_root = args.data_root or args.processed_root
+    if data_root:
+        cfg.setdefault("data", {})["processed_root"] = data_root
+        cfg.setdefault("data_source", {})["processed_root"] = data_root
 
     if args.pipeline == "dl":
         from vn_tsc.pipelines.dl.train import DLPipeline as P
