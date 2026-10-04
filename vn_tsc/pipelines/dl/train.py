@@ -459,17 +459,9 @@ class DLPipeline(BasePipeline):
             train_sampler = train_loader.sampler  # type: ignore[assignment]
 
         # ---- Model ----
-        model = build_model(cfg, num_classes=num_classes)
-        model = model.to(device)
-        if use_ddp:
-            model = nn.parallel.DistributedDataParallel(
-                model,
-                device_ids=[local_rank] if device.type == "cuda" else None,
-                output_device=local_rank if device.type == "cuda" else None,
-                find_unused_parameters=bool(
-                    cfg.get("distributed", {}).get("find_unused_parameters", False)
-                ),
-            )
+        raw_model = build_model(cfg, num_classes=num_classes)
+        raw_model = raw_model.to(device)
+        find_unused = bool(cfg.get("distributed", {}).get("find_unused_parameters", True))
 
         checkpoint_path = self.run_dir / "checkpoints" / "checkpoint_best.pt"
         history: dict[str, list] = {}
@@ -497,8 +489,17 @@ class DLPipeline(BasePipeline):
         if is_main:
             log.info("=== Stage 1: Head warm-up (%d epochs, lr=%.2e) ===",
                      stage1_epochs, lr)
-        raw_model = model.module if use_ddp else model
         freeze_backbone(raw_model)
+        model = (
+            nn.parallel.DistributedDataParallel(
+                raw_model,
+                device_ids=[local_rank] if device.type == "cuda" else None,
+                output_device=local_rank if device.type == "cuda" else None,
+                find_unused_parameters=True,
+            )
+            if use_ddp
+            else raw_model
+        )
 
         best_stage1 = _run_stage(
             "stage1", model, train_loader, val_loader,
@@ -516,6 +517,16 @@ class DLPipeline(BasePipeline):
             log.info("=== Stage 2: Full fine-tune (%d epochs, lr=%.2e) ===",
                      stage2_epochs, lr_stage2)
         unfreeze_backbone(raw_model)
+        model = (
+            nn.parallel.DistributedDataParallel(
+                raw_model,
+                device_ids=[local_rank] if device.type == "cuda" else None,
+                output_device=local_rank if device.type == "cuda" else None,
+                find_unused_parameters=find_unused,
+            )
+            if use_ddp
+            else raw_model
+        )
 
         best_stage2 = _run_stage(
             "stage2", model, train_loader, val_loader,
@@ -533,6 +544,7 @@ class DLPipeline(BasePipeline):
             best_stage2 if best_stage2.get("macro_f1", -1) >= best_stage1.get("macro_f1", -1)
             else best_stage1
         )
+
 
         metrics: dict[str, Any] = {
             "validation": best_val,
@@ -599,8 +611,11 @@ class DLPipeline(BasePipeline):
 
         if use_ddp and torch.distributed.is_initialized():
             torch.distributed.barrier()
+            torch.distributed.destroy_process_group()
 
         return metrics
+
+
 
     def evaluate(self, split: str | None = None) -> dict[str, Any]:
         """Evaluate saved checkpoint on val or test split.
