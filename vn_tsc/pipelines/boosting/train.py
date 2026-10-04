@@ -174,10 +174,16 @@ class BoostingPipeline(BasePipeline):
             )
             if run is not None:
                 run.summary.update({f"val/{key}": value for key, value in metrics.items()})
+                run.summary.update({f"best_val/{key}": value for key, value in metrics.items()})
+                run.summary["best_val_macro_f1"] = float(metrics.get("macro_f1", 0.0))
+                run.summary["best_val_accuracy"] = float(metrics.get("accuracy", 0.0))
                 run.summary["best_iteration"] = int(model.best_iteration_)
                 run.summary["n_train"] = len(y_train)
                 run.summary["n_val"] = len(y_val)
                 run.summary["n_features"] = F_train.shape[1]
+                checkpoint_path = checkpoint_dir / "model.joblib"
+                if checkpoint_path.is_file():
+                    run.summary["checkpoint"] = str(checkpoint_path)
 
             # Write metrics and zip the run.
             save_json(metrics, self.run_dir / "metrics.json")
