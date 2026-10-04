@@ -115,11 +115,14 @@ def _setup_distributed(cfg: dict[str, Any]) -> tuple[bool, int, int]:
 def _device(cfg: dict[str, Any], local_rank: int = 0) -> torch.device:
     runtime = cfg.get("runtime_cfg", {})
     device_str = runtime.get("device", None)
-    if device_str:
-        return torch.device(device_str)
+    if device_str == "cpu":
+        return torch.device("cpu")
     if torch.cuda.is_available():
+        if device_str and device_str.startswith("cuda:"):
+            return torch.device(device_str)
         return torch.device(f"cuda:{local_rank}")
     return torch.device("cpu")
+
 
 
 def _num_workers(cfg: dict[str, Any]) -> int:
