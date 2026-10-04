@@ -73,7 +73,7 @@ from vn_tsc.pipelines.dl.model import (
     unfreeze_backbone,
 )
 from vn_tsc.runtime.pack import zip_run_dir
-from vn_tsc.runtime.wandb_gate import require_wandb
+from vn_tsc.runtime.wandb_gate import generate_run_name, require_wandb
 from vn_tsc.utils.io import save_json, save_yaml
 from vn_tsc.utils.seed import set_seed
 
@@ -471,9 +471,19 @@ class DLPipeline(BasePipeline):
 
         entity = cfg.get("project", {}).get("wandb_entity", "P4AIDS_ML")
         project = cfg.get("project", {}).get("wandb_project", "BTL")
+        run_name = generate_run_name(
+            "dl", cfg,
+            user_name=train_cfg.get("run_name"),
+            run_dir=self.run_dir,
+        )
+        backbone = str(cfg.get("model", {}).get("backbone", "tf_efficientnetv2_b0"))
         run = require_wandb(
-            entity=entity, project=project,
+            entity=entity,
+            project=project,
             enabled=bool(train_cfg.get("require_wandb", True)) and is_main,
+            name=run_name,
+            config=cfg,
+            tags=["dl", backbone, "deep_learning"],
         )
 
         device = _device(cfg, local_rank=local_rank)

@@ -2,8 +2,8 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 from vn_tsc.pipelines.base import BasePipeline
-from vn_tsc.runtime.wandb_gate import require_wandb
-from vn_tsc.utils.io import load_yaml, save_json, save_yaml
+from vn_tsc.runtime.wandb_gate import generate_run_name, require_wandb
+from vn_tsc.utils.io import load_json, load_yaml, save_json, save_yaml
 from vn_tsc.runtime.pack import zip_run_dir
 
 import shutil
@@ -53,9 +53,19 @@ class BoostingPipeline(BasePipeline):
 
         entity = self.cfg.get("project", {}).get("wandb_entity", "P4AIDS_ML")
         project = self.cfg.get("project", {}).get("wandb_project", "BTL")
+        run_name = generate_run_name(
+            "boosting", self.cfg,
+            user_name=self.cfg.get("train", {}).get("run_name"),
+            run_dir=self.run_dir,
+        )
+        backend = self.cfg.get("model", {}).get("backend", "lightgbm")
         run = require_wandb(
-            entity=entity, project=project,
+            entity=entity,
+            project=project,
             enabled=self.cfg.get("train", {}).get("require_wandb", True),
+            name=run_name,
+            config=self.cfg,
+            tags=["boosting", backend, "classical_ml"],
         )
         try:
             save_yaml(self.cfg, self.run_dir / "resolved_config.yaml")
@@ -412,7 +422,8 @@ class BoostingPipeline(BasePipeline):
             enabled=True,
         )
         try:
-            run.name = f"{self.run_dir.name}-test"
+            if not getattr(run, "name", None):
+                run.name = f"{self.run_dir.name}-test"
             run.config.update({
                 **saved_cfg,
                 "eval": {

@@ -12,6 +12,7 @@ if str(repo_root) not in sys.path:
 import logging
 from vn_tsc.config.resolve import resolve_config
 from vn_tsc.runtime.run_dir import make_run_dir
+from vn_tsc.runtime.wandb_gate import build_base_run_name
 from vn_tsc.utils.seed import set_seed
 
 def main(argv=None) -> None:
@@ -52,12 +53,15 @@ def main(argv=None) -> None:
     )
     set_seed(int(cfg.get("seed", 42)))
 
+    base_name = build_base_run_name(args.pipeline, cfg, user_name=args.run_name)
+    cfg.setdefault("train", {})["run_name"] = base_name
+
     if args.run_dir:
         run_dir = Path(args.run_dir)
         for sub in ("logs", "figures", "checkpoints"):
             (run_dir / sub).mkdir(parents=True, exist_ok=True)
     else:
-        run_dir = make_run_dir(cfg.get("outputs", {}).get("root", "outputs"), args.pipeline, args.run_name)
+        run_dir = make_run_dir(cfg.get("outputs", {}).get("root", "outputs"), args.pipeline, base_name)
 
     if args.pipeline == "svm":
         from vn_tsc.pipelines.svm.train import SVMPipeline as P

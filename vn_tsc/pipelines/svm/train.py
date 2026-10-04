@@ -18,7 +18,7 @@ from vn_tsc.pipelines.svm.data_adapter import SVMDataBundle, load_svm_data
 from vn_tsc.pipelines.svm.model import build_svm, validate_fit_data
 from vn_tsc.pipelines.svm.tuning import tune_svm
 from vn_tsc.runtime.pack import zip_run_dir
-from vn_tsc.runtime.wandb_gate import require_wandb
+from vn_tsc.runtime.wandb_gate import generate_run_name, require_wandb
 from vn_tsc.utils.io import load_json, save_json, save_yaml
 
 log = logging.getLogger(__name__)
@@ -92,9 +92,19 @@ class SVMPipeline(BasePipeline):
     def fit(self) -> dict[str, Any]:
         """Train on metadata train split and evaluate on validation by default."""
         project = self.cfg["project"]
+        run_name = generate_run_name(
+            "svm", self.cfg,
+            user_name=self.cfg.get("train", {}).get("run_name"),
+            run_dir=self.run_dir,
+        )
+        kernel = self.cfg.get("model", {}).get("kernel", "rbf")
         run = require_wandb(
-            entity=project["wandb_entity"], project=project["wandb_project"],
+            entity=project["wandb_entity"],
+            project=project["wandb_project"],
             enabled=self.cfg.get("train", {}).get("require_wandb", True),
+            name=run_name,
+            config=self.cfg,
+            tags=["svm", kernel, "classical_ml"],
         )
         try:
             self.run_dir.mkdir(parents=True, exist_ok=True)
