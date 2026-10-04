@@ -12,6 +12,10 @@ import lightgbm as lgb
 import numpy as np
 from wandb.integration.lightgbm import wandb_callback
 from vn_tsc.data.dataset import load_features, load_class_table
+import logging
+import matplotlib.pyplot as plt
+
+from vn_tsc.eval.plots import confusion_matrix_png
 from vn_tsc.eval.metrics import compute_classification_metrics
 from vn_tsc.pipelines.boosting.model import build_booster
 from vn_tsc.data.classes import ClassTable
@@ -19,6 +23,8 @@ from vn_tsc.utils.io import load_json
 from sklearn.metrics import classification_report, confusion_matrix
 from sklearn.metrics import f1_score
 from vn_tsc.data.dataset import rare_classes
+
+log = logging.getLogger(__name__)
 
 def compute_boosting_metrics(y_true, y_pred, table, common_ids):
     # Keep the same class list across runs.
@@ -172,11 +178,54 @@ class BoostingPipeline(BasePipeline):
             np.savez_compressed(
                 self.run_dir / "val_predictions.npz", y_true=y_val, y_pred=y_pred,
             )
+            # Save confusion matrix figure for validation
+            figures_dir = self.run_dir / "figures"
+            figures_dir.mkdir(parents=True, exist_ok=True)
+            val_cm_path = figures_dir / "confusion_matrix_val.png"
+            try:
+                confusion_matrix_png(y_val, y_pred, table.labels, val_cm_path)
+            except Exception as e:
+                log.warning("Could not generate validation confusion matrix: %s", e)
+
+            # Save loss curve from history
+            loss_curve_path = figures_dir / "loss_curve.png"
+            if "val" in history and "multi_logloss" in history["val"]:
+                try:
+                    fig, ax = plt.subplots(figsize=(8, 4))
+                    if "train" in history and "multi_logloss" in history["train"]:
+                        ax.plot(history["train"]["multi_logloss"], label="train loss")
+                    ax.plot(history["val"]["multi_logloss"], label="val loss")
+                    ax.set_xlabel("Iteration")
+                    ax.set_ylabel("Multi-Logloss")
+                    ax.set_title("LightGBM Training and Validation Loss")
+                    ax.legend()
+                    fig.tight_layout()
+                    fig.savefig(loss_curve_path, dpi=120)
+                    plt.close(fig)
+                except Exception as e:
+                    log.warning("Could not generate loss curve: %s", e)
+
+            # Auto-evaluate on test split if configured
+            auto_eval = bool(self.cfg.get("eval", {}).get("auto_eval_test", True)) or \
+                        bool(self.cfg.get("evaluation", {}).get("evaluate_test_after_train", False))
+            test_cm_path = figures_dir / "confusion_matrix_test.png"
+            if auto_eval:
+                try:
+                    F_test, y_test = load_features("test", root)
+                    y_test_pred = model.predict(F_test)
+                    test_metrics = compute_boosting_metrics(y_test, y_test_pred, table, common_ids)
+                    metrics["test"] = test_metrics
+                    metrics["test_samples"] = len(y_test)
+                    confusion_matrix_png(y_test, y_test_pred, table.labels, test_cm_path)
+                except Exception as e:
+                    log.warning("Auto test evaluation failed or skipped: %s", e)
+
             if run is not None:
-                run.summary.update({f"val/{key}": value for key, value in metrics.items()})
-                run.summary.update({f"best_val/{key}": value for key, value in metrics.items()})
+                run.summary.update({f"val/{key}": value for key, value in metrics.items() if isinstance(value, (int, float))})
+                run.summary.update({f"best_val/{key}": value for key, value in metrics.items() if isinstance(value, (int, float))})
                 run.summary["best_val_macro_f1"] = float(metrics.get("macro_f1", 0.0))
                 run.summary["best_val_accuracy"] = float(metrics.get("accuracy", 0.0))
+                run.summary["best_val_score"] = float(metrics.get("macro_f1", 0.0))
                 run.summary["best_iteration"] = int(model.best_iteration_)
                 run.summary["n_train"] = len(y_train)
                 run.summary["n_val"] = len(y_val)
@@ -185,8 +234,31 @@ class BoostingPipeline(BasePipeline):
                 if checkpoint_path.is_file():
                     run.summary["checkpoint"] = str(checkpoint_path)
 
+                if "test" in metrics:
+                    run.summary.update({f"test/{key}": value for key, value in metrics["test"].items() if isinstance(value, (int, float))})
+                    run.log({f"test/{key}": value for key, value in metrics["test"].items() if isinstance(value, (int, float))})
+
+                # Upload confusion matrix and loss curve to W&B media
+                try:
+                    import wandb
+                    if val_cm_path.is_file():
+                        run.log({"media/confusion_matrix_val": wandb.Image(str(val_cm_path))})
+                    if test_cm_path.is_file():
+                        run.log({"media/confusion_matrix_test": wandb.Image(str(test_cm_path))})
+                    if loss_curve_path.is_file():
+                        run.log({"media/loss_curve": wandb.Image(str(loss_curve_path))})
+                except Exception:
+                    pass
+
             # Write metrics and zip the run.
-            save_json(metrics, self.run_dir / "metrics.json")
+            metrics_payload = {
+                "validation": {k: v for k, v in metrics.items() if isinstance(v, (int, float))},
+                "train_samples": len(y_train),
+                "val_samples": len(y_val),
+                "num_classes": len(table.ids),
+                **metrics,
+            }
+            save_json(metrics_payload, self.run_dir / "metrics.json")
             if self.cfg.get("outputs", {}).get("zip_after_train", True):
                 zip_run_dir(self.run_dir)
         # Mark failed runs before raising the error.
@@ -311,6 +383,15 @@ class BoostingPipeline(BasePipeline):
             out_dir / "confusion_matrix.npy",
             confusion_matrix(labels, predictions, labels=table.ids),
         )
+        # Save confusion matrix figure as PNG
+        figures_dir = self.run_dir / "figures"
+        figures_dir.mkdir(parents=True, exist_ok=True)
+        cm_png_path = figures_dir / f"confusion_matrix_{split}.png"
+        try:
+            confusion_matrix_png(labels, predictions, table.labels, cm_png_path)
+        except Exception:
+            pass
+
         # A separate test run also supports checkpoints from older training runs.
         # Validation reload checks remain local by default.
         log_wandb = self.cfg.get("eval", {}).get(
@@ -345,6 +426,13 @@ class BoostingPipeline(BasePipeline):
             scores["test/n_samples"] = int(n_samples)
             run.log(scores)
             run.summary.update(scores)
+            cm_png = self.run_dir / "figures" / "confusion_matrix_test.png"
+            if cm_png.is_file():
+                try:
+                    import wandb
+                    run.log({"media/confusion_matrix_test": wandb.Image(str(cm_png))})
+                except Exception:
+                    pass
             save_json(
                 {"id": run.id, "url": run.url, "name": run.name},
                 out_dir / "wandb_run.json",
