@@ -484,7 +484,7 @@ class DLPipeline(BasePipeline):
         weight_decay = float(train_cfg.get("weight_decay", 1e-4))
         lr = float(train_cfg.get("lr", 3e-4))
         lr_stage2 = float(train_cfg.get("lr_stage2", lr / 10))
-        warmup_epochs = int(train_cfg.get("warmup_epochs", 2))
+        warmup_epochs = int(train_cfg.get("warmup_epochs", 5))
         two_stage = bool(train_cfg.get("two_stage", False))
         epochs = int(train_cfg.get("epochs", int(train_cfg.get("stage1_epochs", 0)) + int(train_cfg.get("stage2_epochs", 30))))
         if epochs <= 0:

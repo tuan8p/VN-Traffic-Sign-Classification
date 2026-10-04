@@ -18,7 +18,7 @@ model:
 train:
   batch_size: 64
   epochs: 30               # Full end-to-end training (smooth continuous curves)
-  warmup_epochs: 2         # Gentle linear warmup to protect pretrained backbone
+  warmup_epochs: 5         # Linear warmup for first 5 epochs
   lr: 3.0e-4
   weight_decay: 1.0e-4
   optimizer: adamw
