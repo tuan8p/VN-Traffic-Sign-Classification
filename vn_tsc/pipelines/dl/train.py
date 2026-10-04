@@ -321,22 +321,26 @@ def _run_stage(
     sampler: DistributedSampler | None,
     is_main: bool,
     rare_classes_list: list[int] | None = None,
-) -> dict[str, float]:
-    """Run one training stage; returns the best val metrics from this stage."""
+    epoch_offset: int = 0,
+    global_best_score: float = -1.0,
+) -> tuple[dict[str, float], float]:
+    """Run one training stage; returns (best_val_metrics_of_stage, updated_global_best_score)."""
     optimizer = _make_optimizer(model, lr, weight_decay)
     scheduler = _make_scheduler(optimizer, epochs)
     scaler = _grad_scaler(enabled=use_amp)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
     history.setdefault(stage_name, [])
-    best_f1 = -1.0
     patience_counter = 0
     best_metrics: dict[str, float] = {}
+    stage_best_score = -1.0
 
     if is_main:
         log.info("[%s] trainable params: %s", stage_name, f"{count_trainable(model):,}")
 
     for epoch in range(1, epochs + 1):
+        global_epoch = epoch_offset + epoch
+
         train_loss = _train_epoch(
             model, train_loader, optimizer, criterion, scaler,
             device, use_amp, sampler, epoch,
@@ -347,11 +351,13 @@ def _run_stage(
         val_loss, val_metrics, _, _ = _eval_epoch(
             model, val_loader, criterion, device, use_amp, num_classes, rare_classes_list,
         )
-        val_f1 = val_metrics["macro_f1"]
         val_acc = val_metrics["accuracy"]
+        val_f1 = val_metrics["macro_f1"]
 
         entry = {
-            "epoch": epoch, "stage": stage_name,
+            "epoch": global_epoch,
+            "stage_epoch": epoch,
+            "stage": stage_name,
             "train_loss": round(train_loss, 5),
             "val_loss": round(val_loss, 5),
             **{f"val_{k}": round(v, 5) for k, v in val_metrics.items()},
@@ -359,39 +365,48 @@ def _run_stage(
         }
         history[stage_name].append(entry)
 
-        # Checkpoint saving & early stopping (tracked across all ranks so DDP stays in sync).
-        is_best = val_f1 > best_f1
-        if is_best:
-            best_f1 = val_f1
+        # Track best metrics for this stage & early stopping
+        if val_acc > stage_best_score:
+            stage_best_score = val_acc
             best_metrics = dict(val_metrics)
             patience_counter = 0
-            if is_main:
-                _save_checkpoint(model, best_checkpoint_path)
         else:
             patience_counter += 1
 
+        # Checkpoint saving across all stages: tracked by BEST GLOBAL VAL ACCURACY
+        is_global_best = val_acc > global_best_score
+        if is_global_best:
+            global_best_score = val_acc
+            if is_main:
+                _save_checkpoint(model, best_checkpoint_path)
+
         if is_main:
-            best_tag = " -> [BEST SAVED]" if is_best else ""
+            best_tag = f" -> [BEST VAL ACC: {val_acc:.4f}]" if is_global_best else ""
             print(
-                f"[{stage_name}] Epoch {epoch:2d}/{epochs:2d} | "
+                f"[{stage_name}] Epoch {epoch:2d}/{epochs:2d} (Global {global_epoch:2d}) | "
                 f"train_loss: {train_loss:.4f} | val_loss: {val_loss:.4f} | "
                 f"val_acc: {val_acc:.4f} | val_macro_f1: {val_f1:.4f} | "
                 f"lr: {scheduler.get_last_lr()[0]:.2e}{best_tag}",
                 flush=True,
             )
             log.info(
-                "[%s] epoch %d/%d  train_loss=%.4f  val_loss=%.4f  "
+                "[%s] epoch %d/%d (global %d)  train_loss=%.4f  val_loss=%.4f  "
                 "val_acc=%.4f  val_macro_f1=%.4f%s",
-                stage_name, epoch, epochs, train_loss, val_loss,
+                stage_name, epoch, epochs, global_epoch, train_loss, val_loss,
                 val_acc, val_f1, best_tag,
             )
             if run is not None:
+                current_lr = scheduler.get_last_lr()[0]
+                # Log unified continuous metrics (single loss and accuracy curves for all stages)
                 run.log({
-                    f"{stage_name}/train_loss": train_loss,
-                    f"{stage_name}/val_loss": val_loss,
-                    **{f"{stage_name}/val_{k}": v for k, v in val_metrics.items()},
-                    f"{stage_name}/lr": scheduler.get_last_lr()[0],
-                    "epoch": epoch,
+                    "epoch": global_epoch,
+                    "train/loss": train_loss,
+                    "val/loss": val_loss,
+                    "val/accuracy": val_acc,
+                    "val/macro_f1": val_f1,
+                    "val/macro_f1_common": val_metrics.get("macro_f1_common", val_f1),
+                    "val/weighted_f1": val_metrics.get("weighted_f1", val_acc),
+                    "lr": current_lr,
                 })
 
         if patience_counter >= early_stopping_patience:
@@ -406,7 +421,8 @@ def _run_stage(
                 )
             break
 
-    return best_metrics
+    return best_metrics, global_best_score
+
 
 
 def _save_checkpoint(model: nn.Module, path: Path) -> None:
@@ -519,6 +535,18 @@ class DLPipeline(BasePipeline):
                  "stage1_epochs": stage1_epochs, "stage2_epochs": stage2_epochs},
                 allow_val_change=True,
             )
+            # Define metrics so W&B automatically builds unified single loss and accuracy charts vs epoch
+            try:
+                run.define_metric("epoch")
+                run.define_metric("train/loss", step_metric="epoch")
+                run.define_metric("val/loss", step_metric="epoch")
+                run.define_metric("val/accuracy", step_metric="epoch")
+                run.define_metric("val/macro_f1", step_metric="epoch")
+                run.define_metric("val/macro_f1_common", step_metric="epoch")
+                run.define_metric("val/weighted_f1", step_metric="epoch")
+                run.define_metric("lr", step_metric="epoch")
+            except Exception:
+                pass
 
         rare_cls: list[int] | None = None
         try:
@@ -549,7 +577,7 @@ class DLPipeline(BasePipeline):
             else raw_model
         )
 
-        best_stage1 = _run_stage(
+        best_stage1, global_best_score = _run_stage(
             "stage1", model, train_loader, val_loader,
             epochs=stage1_epochs, lr=lr, weight_decay=weight_decay,
             device=device, use_amp=use_amp, num_classes=num_classes,
@@ -558,6 +586,8 @@ class DLPipeline(BasePipeline):
             run=run if is_main else None,
             history=history, sampler=train_sampler, is_main=is_main,
             rare_classes_list=rare_cls,
+            epoch_offset=0,
+            global_best_score=-1.0,
         )
 
         # ---- Stage 2: Full fine-tune ----
@@ -579,7 +609,7 @@ class DLPipeline(BasePipeline):
             else raw_model
         )
 
-        best_stage2 = _run_stage(
+        best_stage2, global_best_score = _run_stage(
             "stage2", model, train_loader, val_loader,
             epochs=stage2_epochs, lr=lr_stage2, weight_decay=weight_decay,
             device=device, use_amp=use_amp, num_classes=num_classes,
@@ -588,11 +618,14 @@ class DLPipeline(BasePipeline):
             run=run if is_main else None,
             history=history, sampler=train_sampler, is_main=is_main,
             rare_classes_list=rare_cls,
+            epoch_offset=stage1_epochs,
+            global_best_score=global_best_score,
         )
 
-        # Best overall = max macro_f1 across both stages.
+        # Best overall = max accuracy across both stages (selected by best val acc)
         best_val = (
-            best_stage2 if best_stage2.get("macro_f1", -1) >= best_stage1.get("macro_f1", -1)
+            best_stage2
+            if best_stage2.get("accuracy", -1) >= best_stage1.get("accuracy", -1)
             else best_stage1
         )
 
@@ -625,6 +658,11 @@ class DLPipeline(BasePipeline):
                     cm_test_path = self.run_dir / "confusion_matrix_test.png"
                     if cm_test_path.is_file():
                         run.summary["confusion_matrix_test"] = str(cm_test_path)
+                        try:
+                            import wandb
+                            run.log({"media/confusion_matrix_test": wandb.Image(str(cm_test_path))})
+                        except Exception:
+                            pass
                 print(
                     f"\n[Test Result] Accuracy: {test_metrics['accuracy']:.4f} "
                     f"({test_metrics['accuracy']*100:.2f}%) | "
@@ -643,6 +681,8 @@ class DLPipeline(BasePipeline):
                 run.summary.update({
                     f"best_val/{k}": v for k, v in best_val.items() if isinstance(v, (int, float))
                 })
+                run.summary["best_val_accuracy"] = best_val.get("accuracy", 0.0)
+                run.summary["best_val_macro_f1"] = best_val.get("macro_f1", 0.0)
                 run.summary["checkpoint"] = str(checkpoint_path)
 
             log.info(
@@ -660,7 +700,14 @@ class DLPipeline(BasePipeline):
             if cfg.get("outputs", {}).get("save_curves", True):
                 try:
                     from vn_tsc.eval.plots import curves_from_history_json
-                    curves_from_history_json(self.run_dir / "history.json", self.run_dir / "figures")
+                    curve_paths = curves_from_history_json(self.run_dir / "history.json", self.run_dir / "figures")
+                    if run is not None:
+                        try:
+                            import wandb
+                            for cp in curve_paths:
+                                run.log({f"media/{cp.stem}": wandb.Image(str(cp))})
+                        except Exception:
+                            pass
                 except Exception as e:
                     log.warning("Could not generate loss/metric curves: %s", e)
 
