@@ -36,7 +36,10 @@ train:
   with_aug: true
 
 evaluation:
-  evaluate_test_after_train: false
+  evaluate_test_after_train: true
+
+eval:
+  auto_eval_test: true
 
 tuning:
   enabled: false

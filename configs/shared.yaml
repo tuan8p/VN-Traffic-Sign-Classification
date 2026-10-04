@@ -113,6 +113,12 @@ train_common:
   early_stopping_patience: 10
   max_epochs_or_rounds: 100
 
+eval:
+  auto_eval_test: true     # Mandatory: auto-evaluate on test split after training
+
+evaluation:
+  evaluate_test_after_train: true
+
 outputs:
   root: outputs
   # Local run packaging / figures kept. (No W&B Artifact upload in this repo.)

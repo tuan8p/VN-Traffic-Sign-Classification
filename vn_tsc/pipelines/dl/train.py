@@ -557,7 +557,6 @@ class DLPipeline(BasePipeline):
         history: dict[str, list] = {}
 
         if is_main and run is not None:
-            run.name = f"dl_effnetv2b0_{self.run_dir.name}"
             run.config.update(cfg, allow_val_change=True)
             run.config.update(
                 {"num_classes": num_classes, "with_aug": with_aug,
@@ -725,17 +724,55 @@ class DLPipeline(BasePipeline):
                 if "samples" in test_metrics:
                     metrics["test_samples"] = test_metrics["samples"]
                 if run is not None:
-                    run.summary.update({
+                    test_scores = {
                         f"test/{k}": v for k, v in test_metrics.items() if isinstance(v, (int, float))
+                    }
+                    test_scores.update({
+                        f"test_{k}": v for k, v in test_metrics.items() if isinstance(v, (int, float))
                     })
-                    cm_test_path = self.run_dir / "confusion_matrix_test.png"
+                    run.summary.update(test_scores)
+                    run.summary["test_accuracy"] = float(test_metrics.get("accuracy", 0.0))
+                    run.summary["test_macro_f1"] = float(test_metrics.get("macro_f1", 0.0))
+                    run.summary["test_weighted_f1"] = float(test_metrics.get("weighted_f1", 0.0))
+
+                    run_log_dict = dict(test_scores)
+                    cm_test_path = self.run_dir / "figures" / "confusion_matrix_test.png"
+                    if not cm_test_path.is_file():
+                        cm_test_path = self.run_dir / "confusion_matrix_test.png"
                     if cm_test_path.is_file():
                         run.summary["confusion_matrix_test"] = str(cm_test_path)
                         try:
                             import wandb
-                            run.log({"media/confusion_matrix_test": wandb.Image(str(cm_test_path))})
+                            run_log_dict["media/confusion_matrix_test"] = wandb.Image(str(cm_test_path))
                         except Exception:
                             pass
+
+                    # Attach classification table to W&B if available
+                    report_file = self.run_dir / "classification_report_test.json"
+                    if report_file.is_file():
+                        try:
+                            import wandb
+                            from vn_tsc.utils.io import load_json
+                            rep = load_json(report_file)
+                            rows = []
+                            for cname, vals in rep.items():
+                                if isinstance(vals, dict):
+                                    rows.append([
+                                        cname,
+                                        float(vals.get("precision", 0.0)),
+                                        float(vals.get("recall", 0.0)),
+                                        float(vals.get("f1-score", 0.0)),
+                                        int(vals.get("support", 0)),
+                                    ])
+                            if rows:
+                                run_log_dict["test/classification_table"] = wandb.Table(
+                                    columns=["class", "precision", "recall", "f1_score", "support"],
+                                    data=rows,
+                                )
+                        except Exception:
+                            pass
+
+                    run.log(run_log_dict)
                 print(
                     f"\n[Test Result] Accuracy: {test_metrics['accuracy']:.4f} "
                     f"({test_metrics['accuracy']*100:.2f}%) | "
@@ -839,25 +876,44 @@ class DLPipeline(BasePipeline):
         model = model.to(device)
 
         criterion = nn.CrossEntropyLoss()
-        _, metrics, preds, targets = _eval_epoch(
+        avg_loss, metrics, preds, targets = _eval_epoch(
             model, loader, criterion, device, use_amp, num_classes, rare_cls
         )
+        metrics["loss"] = float(avg_loss)
         metrics["samples"] = int(len(X))
 
         log.info(
-            "Evaluate [%s] → accuracy=%.4f macro_f1=%.4f (common=%.4f)",
-            split, metrics["accuracy"], metrics["macro_f1"],
+            "Evaluate [%s] → loss=%.4f accuracy=%.4f macro_f1=%.4f (common=%.4f)",
+            split, metrics["loss"], metrics["accuracy"], metrics["macro_f1"],
             metrics.get("macro_f1_common", metrics["macro_f1"]),
         )
 
+        try:
+            from sklearn.metrics import classification_report
+            from vn_tsc.data.dataset import load_class_table
+            table = load_class_table(cfg["data"]["processed_root"])
+            class_labels = table.labels if len(table) == num_classes else [str(i) for i in range(num_classes)]
+            rep_dict = classification_report(
+                targets, preds, labels=list(range(num_classes)),
+                target_names=class_labels, output_dict=True, zero_division=0
+            )
+            save_json(rep_dict, self.run_dir / f"classification_report_{split}.json")
+        except Exception as e:
+            log.warning("Could not save classification report: %s", e)
+
+        cm_out: Path | None = None
         if cfg.get("outputs", {}).get("save_confusion_matrix", True):
             try:
                 from vn_tsc.data.dataset import load_class_table
                 from vn_tsc.eval.plots import confusion_matrix_png
                 table = load_class_table(cfg["data"]["processed_root"])
                 class_labels = table.labels if len(table) == num_classes else [str(i) for i in range(num_classes)]
-                cm_out = self.run_dir / f"confusion_matrix_{split}.png"
+                figures_dir = self.run_dir / "figures"
+                figures_dir.mkdir(parents=True, exist_ok=True)
+                cm_out = figures_dir / f"confusion_matrix_{split}.png"
                 confusion_matrix_png(targets, preds, class_labels, cm_out)
+                import shutil
+                shutil.copy2(cm_out, self.run_dir / f"confusion_matrix_{split}.png")
                 log.info("Saved confusion matrix: %s", cm_out)
             except Exception as e:
                 log.warning("Could not save confusion matrix: %s", e)
@@ -871,5 +927,76 @@ class DLPipeline(BasePipeline):
         existing[f"{split}_samples"] = int(len(X))
         save_json(existing, metrics_path)
 
+        # Log standalone eval to W&B if split == "test"
+        log_wandb = bool(
+            cfg.get("eval", {}).get("log_wandb", cfg.get("train", {}).get("require_wandb", True))
+        )
+        if split == "test" and log_wandb:
+            self._log_test_results(metrics, cm_out)
+
         return metrics
+
+    def _log_test_results(self, metrics: dict[str, Any], cm_path: Path | None = None) -> None:
+        """Log test evaluation results to active or standalone W&B run."""
+        try:
+            import wandb
+            run = wandb.run
+            created_run = False
+            if run is None and bool(self.cfg.get("train", {}).get("require_wandb", True)):
+                project_cfg = self.cfg.get("project", {})
+                run = require_wandb(
+                    entity=project_cfg.get("wandb_entity", "P4AIDS_ML"),
+                    project=project_cfg.get("wandb_project", "BTL"),
+                    enabled=True,
+                    name=f"{self.run_dir.name}-test",
+                    tags=["dl", "evaluation", "test"],
+                )
+                created_run = True
+
+            if run is not None:
+                scores = {f"test/{k}": v for k, v in metrics.items() if isinstance(v, (int, float))}
+                scores.update({f"test_{k}": v for k, v in metrics.items() if isinstance(v, (int, float))})
+                if cm_path and cm_path.is_file():
+                    try:
+                        scores["media/confusion_matrix_test"] = wandb.Image(str(cm_path))
+                    except Exception:
+                        pass
+                    if hasattr(run, "summary") and run.summary is not None:
+                        run.summary["confusion_matrix_test"] = str(cm_path)
+
+                report_file = self.run_dir / "classification_report_test.json"
+                if report_file.is_file():
+                    try:
+                        from vn_tsc.utils.io import load_json
+                        rep = load_json(report_file)
+                        rows = []
+                        for cname, vals in rep.items():
+                            if isinstance(vals, dict):
+                                rows.append([
+                                    cname,
+                                    float(vals.get("precision", 0.0)),
+                                    float(vals.get("recall", 0.0)),
+                                    float(vals.get("f1-score", 0.0)),
+                                    int(vals.get("support", 0)),
+                                ])
+                        if rows:
+                            scores["test/classification_table"] = wandb.Table(
+                                columns=["class", "precision", "recall", "f1_score", "support"],
+                                data=rows,
+                            )
+                    except Exception:
+                        pass
+
+                run.log(scores)
+                if hasattr(run, "summary") and run.summary is not None:
+                    run.summary.update(scores)
+                    run.summary["test_accuracy"] = float(metrics.get("accuracy", 0.0))
+                    run.summary["test_macro_f1"] = float(metrics.get("macro_f1", 0.0))
+                    run.summary["test_weighted_f1"] = float(metrics.get("weighted_f1", 0.0))
+
+                if created_run:
+                    run.finish()
+        except Exception as e:
+            log.warning("Could not log test results to W&B: %s", e)
+
 

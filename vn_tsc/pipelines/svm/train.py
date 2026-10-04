@@ -140,7 +140,10 @@ class SVMPipeline(BasePipeline):
             if search is not None:
                 metrics["best_cv_macro_f1"] = float(search.best_score_)
                 metrics["best_params"] = search.best_params_
-            if self.cfg.get("evaluation", {}).get("evaluate_test_after_train", False):
+            eval_cfg = self.cfg.get("eval", {})
+            auto_eval = bool(eval_cfg.get("auto_eval_test",
+                             self.cfg.get("evaluation", {}).get("evaluate_test_after_train", True)))
+            if auto_eval:
                 figure = (self.run_dir / "figures" / "confusion_matrix_test.png"
                           if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
                 metrics["test"] = _score_split(model, data.X_test, data.y_test,
@@ -167,12 +170,8 @@ class SVMPipeline(BasePipeline):
             if run is not None:
                 temporary = (data.feature_config["backend"] == "dev" or
                              self.cfg["data_source"]["type"] == "dev")
-                enabled = [name for name in ("hog", "lbp", "color_hist")
-                           if data.feature_config[name].get("enabled")]
-                run.name = f"svm_{'-'.join(enabled)}_{self.cfg['dim_reduction']['method']}_{self.cfg['model']['kernel']}"
                 if temporary:
                     run.tags = tuple(set(run.tags or ()) | {"development", "temporary-preprocessing"})
-                run.config.update(self.cfg, allow_val_change=True)
                 run.config.update({"feature_backend": data.feature_config["backend"],
                                    "temporary_experiment": temporary}, allow_val_change=True)
                 logged = {f"validation/{key}": value for key, value in val_metrics.items()}

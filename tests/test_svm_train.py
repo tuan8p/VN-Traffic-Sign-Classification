@@ -48,6 +48,8 @@ def _prepare_data(cfg: dict, tmp_path: Path) -> None:
 
 
 def test_end_to_end_artifacts_evaluate_and_no_early_test(cfg: dict, tmp_path: Path) -> None:
+    cfg["eval"] = {"auto_eval_test": False}
+    cfg["evaluation"] = {"evaluate_test_after_train": False}
     _prepare_data(cfg, tmp_path)
     run_dir = tmp_path / "outputs" / "svm" / "run"
     pipeline = SVMPipeline(cfg, run_dir)

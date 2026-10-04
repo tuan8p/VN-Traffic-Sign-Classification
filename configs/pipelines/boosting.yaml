@@ -26,3 +26,6 @@ train:
 data:
   processed_root: data/processed
 
+eval:
+  auto_eval_test: true
+

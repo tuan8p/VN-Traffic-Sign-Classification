@@ -135,7 +135,6 @@ class BoostingPipeline(BasePipeline):
                 ),
             ]
             if run is not None:
-                run.name = self.run_dir.name
                 run.config.update(self.cfg)
                 callbacks.append(wandb_callback())
 
@@ -216,8 +215,11 @@ class BoostingPipeline(BasePipeline):
                     log.warning("Could not generate loss curve: %s", e)
 
             # Auto-evaluate on test split if configured
-            auto_eval = bool(self.cfg.get("eval", {}).get("auto_eval_test", True)) or \
-                        bool(self.cfg.get("evaluation", {}).get("evaluate_test_after_train", False))
+            eval_cfg = self.cfg.get("eval", {})
+            if "auto_eval_test" in eval_cfg:
+                auto_eval = bool(eval_cfg["auto_eval_test"])
+            else:
+                auto_eval = bool(self.cfg.get("evaluation", {}).get("evaluate_test_after_train", True))
             test_cm_path = figures_dir / "confusion_matrix_test.png"
             if auto_eval:
                 try:
