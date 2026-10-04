@@ -17,18 +17,16 @@ model:
 
 train:
   batch_size: 64
-  # Stage 1: freeze backbone, train head only
-  stage1_epochs: 5
+  epochs: 30               # Full end-to-end training (smooth continuous curves)
+  warmup_epochs: 2         # Gentle linear warmup to protect pretrained backbone
   lr: 3.0e-4
-  # Stage 2: unfreeze all, full fine-tune with smaller LR
-  stage2_epochs: 25
-  lr_stage2: 3.0e-5
   weight_decay: 1.0e-4
   optimizer: adamw
   scheduler: cosine
   amp: true
   require_wandb: true
   with_aug: true           # append X_train_aug.npy from shared preprocessing
+  two_stage: false         # Single-stage full training without stage split
 
 aug:
   hflip: false             # LOCKED: mirror-pair classes exist (see shared.yaml)

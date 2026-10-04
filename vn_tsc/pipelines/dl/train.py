@@ -177,7 +177,16 @@ def _make_optimizer(model: nn.Module, lr: float, weight_decay: float) -> torch.o
     )
 
 
-def _make_scheduler(optimizer: torch.optim.Optimizer, epochs: int) -> Any:
+def _make_scheduler(
+    optimizer: torch.optim.Optimizer,
+    epochs: int,
+    warmup_epochs: int = 0,
+) -> Any:
+    if warmup_epochs > 0 and epochs > warmup_epochs:
+        from torch.optim.lr_scheduler import CosineAnnealingLR, LinearLR, SequentialLR
+        warmup = LinearLR(optimizer, start_factor=0.1, end_factor=1.0, total_iters=warmup_epochs)
+        cosine = CosineAnnealingLR(optimizer, T_max=epochs - warmup_epochs, eta_min=1e-6)
+        return SequentialLR(optimizer, schedulers=[warmup, cosine], milestones=[warmup_epochs])
     return torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs, eta_min=1e-6)
 
 
@@ -323,10 +332,11 @@ def _run_stage(
     rare_classes_list: list[int] | None = None,
     epoch_offset: int = 0,
     global_best_score: float = -1.0,
+    warmup_epochs: int = 0,
 ) -> tuple[dict[str, float], float]:
     """Run one training stage; returns (best_val_metrics_of_stage, updated_global_best_score)."""
     optimizer = _make_optimizer(model, lr, weight_decay)
-    scheduler = _make_scheduler(optimizer, epochs)
+    scheduler = _make_scheduler(optimizer, epochs, warmup_epochs=warmup_epochs)
     scaler = _grad_scaler(enabled=use_amp)
     criterion = nn.CrossEntropyLoss(label_smoothing=0.1)
 
@@ -474,6 +484,11 @@ class DLPipeline(BasePipeline):
         weight_decay = float(train_cfg.get("weight_decay", 1e-4))
         lr = float(train_cfg.get("lr", 3e-4))
         lr_stage2 = float(train_cfg.get("lr_stage2", lr / 10))
+        warmup_epochs = int(train_cfg.get("warmup_epochs", 2))
+        two_stage = bool(train_cfg.get("two_stage", False))
+        epochs = int(train_cfg.get("epochs", int(train_cfg.get("stage1_epochs", 0)) + int(train_cfg.get("stage2_epochs", 30))))
+        if epochs <= 0:
+            epochs = 30
         stage1_epochs = int(train_cfg.get("stage1_epochs", 5))
         stage2_epochs = int(train_cfg.get("stage2_epochs", 25))
         early_stop_patience = int(
@@ -532,7 +547,7 @@ class DLPipeline(BasePipeline):
             run.config.update(cfg, allow_val_change=True)
             run.config.update(
                 {"num_classes": num_classes, "with_aug": with_aug,
-                 "stage1_epochs": stage1_epochs, "stage2_epochs": stage2_epochs},
+                 "epochs": epochs, "two_stage": two_stage},
                 allow_val_change=True,
             )
             # Define metrics so W&B automatically builds unified single loss and accuracy charts vs epoch
@@ -558,86 +573,124 @@ class DLPipeline(BasePipeline):
         except Exception:
             pass
 
-        # ---- Stage 1: Head warm-up ----
-        if is_main:
-            print(f"\n=======================================================", flush=True)
-            print(f"=== Stage 1: Head warm-up ({stage1_epochs} epochs, lr={lr:.2e}) ===", flush=True)
-            print(f"=======================================================\n", flush=True)
-            log.info("=== Stage 1: Head warm-up (%d epochs, lr=%.2e) ===",
-                     stage1_epochs, lr)
-        freeze_backbone(raw_model)
-        model = (
-            nn.parallel.DistributedDataParallel(
-                raw_model,
-                device_ids=[local_rank] if device.type == "cuda" else None,
-                output_device=local_rank if device.type == "cuda" else None,
-                find_unused_parameters=find_unused,
+        if two_stage:
+            # ---- Stage 1: Head warm-up ----
+            if is_main:
+                print(f"\n=======================================================", flush=True)
+                print(f"=== Stage 1: Head warm-up ({stage1_epochs} epochs, lr={lr:.2e}) ===", flush=True)
+                print(f"=======================================================\n", flush=True)
+                log.info("=== Stage 1: Head warm-up (%d epochs, lr=%.2e) ===",
+                         stage1_epochs, lr)
+            freeze_backbone(raw_model)
+            model = (
+                nn.parallel.DistributedDataParallel(
+                    raw_model,
+                    device_ids=[local_rank] if device.type == "cuda" else None,
+                    output_device=local_rank if device.type == "cuda" else None,
+                    find_unused_parameters=find_unused,
+                )
+                if use_ddp
+                else raw_model
             )
-            if use_ddp
-            else raw_model
-        )
 
-        best_stage1, global_best_score = _run_stage(
-            "stage1", model, train_loader, val_loader,
-            epochs=stage1_epochs, lr=lr, weight_decay=weight_decay,
-            device=device, use_amp=use_amp, num_classes=num_classes,
-            early_stopping_patience=early_stop_patience,
-            best_checkpoint_path=checkpoint_path,
-            run=run if is_main else None,
-            history=history, sampler=train_sampler, is_main=is_main,
-            rare_classes_list=rare_cls,
-            epoch_offset=0,
-            global_best_score=-1.0,
-        )
-
-        # ---- Stage 2: Full fine-tune ----
-        if is_main:
-            print(f"\n=======================================================", flush=True)
-            print(f"=== Stage 2: Full fine-tune ({stage2_epochs} epochs, lr={lr_stage2:.2e}) ===", flush=True)
-            print(f"=======================================================\n", flush=True)
-            log.info("=== Stage 2: Full fine-tune (%d epochs, lr=%.2e) ===",
-                     stage2_epochs, lr_stage2)
-        unfreeze_backbone(raw_model)
-        model = (
-            nn.parallel.DistributedDataParallel(
-                raw_model,
-                device_ids=[local_rank] if device.type == "cuda" else None,
-                output_device=local_rank if device.type == "cuda" else None,
-                find_unused_parameters=find_unused,
+            best_stage1, global_best_score = _run_stage(
+                "stage1", model, train_loader, val_loader,
+                epochs=stage1_epochs, lr=lr, weight_decay=weight_decay,
+                device=device, use_amp=use_amp, num_classes=num_classes,
+                early_stopping_patience=early_stop_patience,
+                best_checkpoint_path=checkpoint_path,
+                run=run if is_main else None,
+                history=history, sampler=train_sampler, is_main=is_main,
+                rare_classes_list=rare_cls,
+                epoch_offset=0,
+                global_best_score=-1.0,
             )
-            if use_ddp
-            else raw_model
-        )
 
-        best_stage2, global_best_score = _run_stage(
-            "stage2", model, train_loader, val_loader,
-            epochs=stage2_epochs, lr=lr_stage2, weight_decay=weight_decay,
-            device=device, use_amp=use_amp, num_classes=num_classes,
-            early_stopping_patience=early_stop_patience,
-            best_checkpoint_path=checkpoint_path,
-            run=run if is_main else None,
-            history=history, sampler=train_sampler, is_main=is_main,
-            rare_classes_list=rare_cls,
-            epoch_offset=stage1_epochs,
-            global_best_score=global_best_score,
-        )
+            # ---- Stage 2: Full fine-tune ----
+            if is_main:
+                print(f"\n=======================================================", flush=True)
+                print(f"=== Stage 2: Full fine-tune ({stage2_epochs} epochs, lr={lr_stage2:.2e}) ===", flush=True)
+                print(f"=======================================================\n", flush=True)
+                log.info("=== Stage 2: Full fine-tune (%d epochs, lr=%.2e) ===",
+                         stage2_epochs, lr_stage2)
+            unfreeze_backbone(raw_model)
+            model = (
+                nn.parallel.DistributedDataParallel(
+                    raw_model,
+                    device_ids=[local_rank] if device.type == "cuda" else None,
+                    output_device=local_rank if device.type == "cuda" else None,
+                    find_unused_parameters=find_unused,
+                )
+                if use_ddp
+                else raw_model
+            )
 
-        # Best overall = max accuracy across both stages (selected by best val acc)
-        best_val = (
-            best_stage2
-            if best_stage2.get("accuracy", -1) >= best_stage1.get("accuracy", -1)
-            else best_stage1
-        )
+            best_stage2, global_best_score = _run_stage(
+                "stage2", model, train_loader, val_loader,
+                epochs=stage2_epochs, lr=lr_stage2, weight_decay=weight_decay,
+                device=device, use_amp=use_amp, num_classes=num_classes,
+                early_stopping_patience=early_stop_patience,
+                best_checkpoint_path=checkpoint_path,
+                run=run if is_main else None,
+                history=history, sampler=train_sampler, is_main=is_main,
+                rare_classes_list=rare_cls,
+                epoch_offset=stage1_epochs,
+                global_best_score=global_best_score,
+            )
 
+            # Best overall = max accuracy across both stages (selected by best val acc)
+            best_val = (
+                best_stage2
+                if best_stage2.get("accuracy", -1) >= best_stage1.get("accuracy", -1)
+                else best_stage1
+            )
+            stage1_metrics = best_stage1
+            stage2_metrics = best_stage2
+        else:
+            # ---- Full End-to-End Training (Single Stage) ----
+            if is_main:
+                print(f"\n=======================================================", flush=True)
+                print(f"=== Full Training End-to-End ({epochs} epochs, lr={lr:.2e}, warmup={warmup_epochs}) ===", flush=True)
+                print(f"=======================================================\n", flush=True)
+                log.info("=== Full Training End-to-End (%d epochs, lr=%.2e, warmup=%d) ===",
+                         epochs, lr, warmup_epochs)
+            unfreeze_backbone(raw_model)
+            model = (
+                nn.parallel.DistributedDataParallel(
+                    raw_model,
+                    device_ids=[local_rank] if device.type == "cuda" else None,
+                    output_device=local_rank if device.type == "cuda" else None,
+                    find_unused_parameters=find_unused,
+                )
+                if use_ddp
+                else raw_model
+            )
+
+            best_val, global_best_score = _run_stage(
+                "train", model, train_loader, val_loader,
+                epochs=epochs, lr=lr, weight_decay=weight_decay,
+                device=device, use_amp=use_amp, num_classes=num_classes,
+                early_stopping_patience=early_stop_patience,
+                best_checkpoint_path=checkpoint_path,
+                run=run if is_main else None,
+                history=history, sampler=train_sampler, is_main=is_main,
+                rare_classes_list=rare_cls,
+                epoch_offset=0,
+                global_best_score=-1.0,
+                warmup_epochs=warmup_epochs,
+            )
+            stage1_metrics = best_val
+            stage2_metrics = best_val
 
         metrics: dict[str, Any] = {
             "validation": best_val,
             "train_samples": int(len(X_train)),
             "val_samples": int(len(X_val)),
             "num_classes": num_classes,
-            "stage1_best": best_stage1,
-            "stage2_best": best_stage2,
+            "stage1_best": stage1_metrics,
+            "stage2_best": stage2_metrics,
         }
+
 
         # Auto-evaluate on test split right after training completes
         auto_eval = bool(cfg.get("eval", {}).get("auto_eval_test", True))
