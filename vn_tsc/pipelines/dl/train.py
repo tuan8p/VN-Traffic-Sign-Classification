@@ -75,6 +75,7 @@ from vn_tsc.pipelines.dl.model import (
 from vn_tsc.runtime.pack import zip_run_dir
 from vn_tsc.runtime.wandb_gate import require_wandb
 from vn_tsc.utils.io import save_json, save_yaml
+from vn_tsc.utils.seed import set_seed
 
 log = logging.getLogger(__name__)
 
@@ -148,9 +149,11 @@ def _build_loader(
     num_workers: int,
     pin_memory: bool,
     use_ddp: bool,
+    seed: int = 42,
 ) -> DataLoader:
     dataset = NpyDataset(X, y, transform=transform)
-    sampler = DistributedSampler(dataset, shuffle=shuffle) if use_ddp else None
+    sampler = DistributedSampler(dataset, shuffle=shuffle, seed=seed) if use_ddp else None
+    generator = torch.Generator().manual_seed(seed) if shuffle else None
     return DataLoader(
         dataset,
         batch_size=batch_size,
@@ -162,6 +165,7 @@ def _build_loader(
         # persistent_workers requires num_workers > 0 and is not supported on
         # Windows with the default 'spawn' start method when using mmap arrays.
         persistent_workers=False,
+        generator=generator,
     )
 
 
@@ -485,12 +489,17 @@ class DLPipeline(BasePipeline):
         eval_tf = build_eval_transforms(cfg)
 
         train_sampler: DistributedSampler | None = None
+        seed = int(cfg.get("seed", 42))
+        set_seed(seed)
+
         train_loader = _build_loader(X_train, y_train, train_tf, batch_size,
                                      shuffle=True, num_workers=num_workers,
-                                     pin_memory=pin_memory, use_ddp=use_ddp)
+                                     pin_memory=pin_memory, use_ddp=use_ddp,
+                                     seed=seed)
         val_loader = _build_loader(X_val, y_val, eval_tf, batch_size * 2,
                                    shuffle=False, num_workers=num_workers,
-                                   pin_memory=pin_memory, use_ddp=False)
+                                   pin_memory=pin_memory, use_ddp=False,
+                                   seed=seed)
         if use_ddp:
             train_sampler = train_loader.sampler  # type: ignore[assignment]
 
