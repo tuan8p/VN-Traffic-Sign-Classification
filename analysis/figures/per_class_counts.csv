@@ -1,0 +1,53 @@
+class_id,code,name_vi,train,val,test,train_aug,total_real
+0,00_W.224,Đường người đi bộ cắt ngang,215,47,47,85,309
+1,01_W.205c,Đường giao nhau (ngã ba bên phải),15,3,4,105,22
+2,02_P.102,Cấm đi ngược chiều,235,53,51,65,339
+3,03_R.302a,Phải đi vòng sang bên phải,235,51,51,65,337
+4,04_W.205a,Giao nhau với đường đồng cấp,23,5,5,161,33
+5,05_W.207,Giao nhau với đường không ưu tiên,178,38,38,122,254
+6,06_W.201a,Chỗ ngoặt nguy hiểm vòng bên trái,127,28,27,173,182
+7,07_P.123a,Cấm rẽ trái,169,36,36,131,241
+8,08_I.434a,Bến xe buýt,149,32,32,151,213
+9,09_R.303,Nơi giao nhau chạy theo vòng xuyến,29,7,7,203,43
+10,10_P.130,Cấm dừng và đỗ xe,710,152,152,0,1014
+11,11_I.409,Chỗ quay xe,18,4,4,126,26
+12,12_R.415a,Biển gộp làn đường theo phương tiện,196,42,42,104,280
+13,13_W.245a,Đi chậm,260,56,56,40,372
+14,14_P.106a*Xe tai,Cấm xe tải,59,13,13,241,85
+15,15_W.203c,Đường bị thu hẹp về phía phải,19,5,5,133,29
+16,16_P.117*,Giới hạn chiều cao,48,11,11,252,70
+17,17_P.124a*,Cấm quay đầu,73,16,16,227,105
+18,18_P.107,Cấm ô tô khách và ô tô tải,147,32,32,153,211
+19,19_P.124d,Cấm rẽ phải và quay đầu,19,5,5,133,29
+20,20_P.103a,Cấm ô tô,36,8,8,252,52
+21,21_W.203b,Đường bị thu hẹp về phía trái,7,2,2,49,11
+22,22_W.221b,Gồ giảm tốc phía trước,92,20,19,208,131
+23,23_P.111,Cấm xe hai và ba bánh,325,70,70,0,465
+24,24_P.129,Kiểm tra,39,8,9,261,56
+25,25_S.505a*Xe may,Chỉ dành cho xe máy,17,4,4,119,25
+26,26_W.246a,Chướng ngoại vật phía trước,53,12,12,247,77
+27,27_W.225,Trẻ em,24,6,6,168,36
+28,28_S.505a*Xe tai va cong,Xe tải và xe công,19,4,4,133,27
+29,29_P.104,Cấm mô tô và xe máy,31,7,7,217,45
+30,30_S.505a*Xe tai,Chỉ dành cho xe tải,95,21,22,205,138
+31,31_Camera,Đường có camera giám sát,26,6,6,182,38
+32,32_P.123b,Cấm rẽ phải,127,27,27,173,181
+33,33_W.202b,"Nhiều chỗ ngoặt nguy hiểm liên tiếp, chỗ đầu tiên sang phải",13,3,3,91,19
+34,34_B.8a,Cấm xe sơ-mi rơ-moóc,55,12,12,245,79
+35,35_P.137,Cấm rẽ trái và phải,60,14,13,240,87
+36,36_P.139,Cấm đi thẳng và rẽ phải,48,11,16,252,75
+37,37_W.205b,Đường giao nhau (ngã ba bên trái),33,7,7,231,47
+38,38_P.127*50,Giới hạn tốc độ (50km/h),133,28,28,167,189
+39,39_P.127*60,Giới hạn tốc độ (60km/h),320,69,70,0,459
+40,40_P.127*80,Giới hạn tốc độ (80km/h),146,32,32,154,210
+41,41_P.127*40,Giới hạn tốc độ (40km/h),183,40,40,117,263
+42,42_R.301e,Các xe chỉ được rẽ trái,15,3,3,105,21
+43,43_W.239b*,Chiều cao tĩnh không thực tế,19,4,4,133,27
+44,44_W.233,Nguy hiểm khác,2,1,0,14,3
+45,45_I.407a,Đường một chiều,136,30,29,164,195
+46,46_P.131a,Cấm đỗ xe,304,66,65,0,435
+47,47_P.124b1,Cấm ô tô quay đầu xe (được rẽ trái),10,3,3,70,16
+48,48_W.210,Giao nhau với đường sắt có rào chắn,29,6,6,203,41
+49,49_P.124c,Cấm rẽ trái và quay đầu xe,155,33,33,145,221
+50,50_W.201b,Chỗ ngoặt nguy hiểm vòng bên phải,85,18,18,215,121
+51,51_W.246c,Chú ý chướng ngại vật – vòng tránh sang bên phải,3,1,1,21,5

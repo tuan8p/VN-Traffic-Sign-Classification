@@ -5,10 +5,11 @@ model:
   backend: lightgbm
   num_leaves: 63
   learning_rate: 0.05
-  n_estimators: 300
+  n_estimators: 150
   subsample: 0.9
   colsample_bytree: 0.9
   class_weight: balanced
+  subsample_freq: 1
 
 features:
   use_shared_classical: true
@@ -18,5 +19,13 @@ features:
 
 train:
   n_jobs: -1
-  early_stopping_rounds: 30
+  early_stopping_rounds: 10
   require_wandb: true
+  with_aug: true
+
+data:
+  processed_root: data/processed
+
+eval:
+  auto_eval_test: true
+
