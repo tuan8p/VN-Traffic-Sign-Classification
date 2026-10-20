@@ -146,6 +146,29 @@ def load_split(
     return np.concatenate([np.asarray(X), np.asarray(Xa)]), np.concatenate([y, ya])
 
 
+def load_split_mmaps_for_dl(
+    split: str,
+    processed_root: str | Path = DEFAULT_PROCESSED,
+    with_aug: bool = False,
+    mmap: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Load image splits for DL without materializing ``train``+``train_aug`` into RAM.
+
+    Returns ``(X, y, X_aug, y_aug)``. Aug arrays are ``None`` when ``with_aug`` is
+    false or aug files are missing. Keeps memory-mapped .npy on disk until each
+    batch is read — avoids multi-minute ``np.asarray`` on Kaggle input mounts.
+    """
+    root = Path(processed_root)
+    X, y = _load_pair(root, split, mmap)
+    if split != "train" or not with_aug:
+        return X, y, None, None
+    xa_path = root / "images" / "X_train_aug.npy"
+    if not xa_path.exists():
+        return X, y, None, None
+    Xa, ya = _load_pair(root, "train_aug", mmap)
+    return X, y, Xa, ya
+
+
 # Alias for DL pipeline backward-compatibility
 load_npy_split = load_split
 

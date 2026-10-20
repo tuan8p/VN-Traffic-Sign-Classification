@@ -135,6 +135,20 @@ def test_npy_dataset_and_loader(dl_config):
     dataset = NpyDataset(X, y, transform=eval_tf)
     assert len(dataset) == num_samples
 
+
+def test_npy_dataset_with_aug_extension(dl_config):
+    """Train+aug as separate arrays (no RAM concat) matches concatenated length."""
+    n, m = 6, 4
+    X = np.random.randint(0, 256, (n, 224, 224, 3), dtype=np.uint8)
+    y = np.arange(n, dtype=np.int64)
+    Xa = np.random.randint(0, 256, (m, 224, 224, 3), dtype=np.uint8)
+    ya = np.arange(m, dtype=np.int64) + 10
+    eval_tf = build_eval_transforms(dl_config)
+    ds = NpyDataset(X, y, transform=eval_tf, X_aug=Xa, y_aug=ya)
+    assert len(ds) == n + m
+    _, lab_aug = ds[n]
+    assert lab_aug == 10
+
     img, label = dataset[0]
     assert img.shape == (3, 224, 224)
     assert isinstance(label, int)
