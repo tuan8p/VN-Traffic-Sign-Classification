@@ -1,6 +1,6 @@
 runtime: kaggle_2xt4
 device: cuda
-num_workers: 2
+num_workers: 4
 pin_memory: true
 gpus: 2
 mixed_precision: true

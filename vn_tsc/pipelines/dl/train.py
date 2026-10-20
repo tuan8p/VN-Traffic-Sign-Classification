@@ -62,7 +62,7 @@ else:
     def _grad_scaler(enabled: bool):
         return _GradScaler(enabled=enabled)
 
-from vn_tsc.data.dataset import load_split, load_split_mmaps_for_dl
+from vn_tsc.data.dataset import load_split, load_split_mmaps_for_dl, materialize_dl_arrays
 from vn_tsc.data.preprocess_online import build_eval_transforms, build_train_transforms
 from vn_tsc.eval.metrics import compute_classification_metrics
 from vn_tsc.pipelines.base import BasePipeline
@@ -527,6 +527,29 @@ class DLPipeline(BasePipeline):
             "train", cfg["data"]["processed_root"], with_aug=with_aug,
         )
         X_val, y_val, _, _ = load_split_mmaps_for_dl("val", cfg["data"]["processed_root"])
+
+        materialize = bool(cfg.get("data", {}).get("materialize_images", False))
+        processed_root_str = str(cfg["data"]["processed_root"])
+        if not materialize and "/kaggle/input" in processed_root_str.replace("\\", "/"):
+            materialize = True
+            if is_main:
+                log.warning(
+                    "processed_root is on Kaggle Input; enabling materialize_images "
+                    "(copy data to /kaggle/working in the notebook to speed this up)"
+                )
+        if materialize:
+            if is_main:
+                log.info("Materializing train/val image arrays into RAM (one-time)…")
+            import time as _time
+
+            t0 = _time.perf_counter()
+            X_train, y_train, X_aug, y_aug = materialize_dl_arrays(
+                X_train, y_train, X_aug, y_aug,
+            )
+            X_val = np.ascontiguousarray(np.asarray(X_val))
+            y_val = np.asarray(y_val)
+            if is_main:
+                log.info("Materialized in %.1fs", _time.perf_counter() - t0)
 
         num_classes = _num_classes_from_table(cfg["data"]["processed_root"], cfg)
         train_count = len(y_train) + (len(y_aug) if y_aug is not None else 0)
