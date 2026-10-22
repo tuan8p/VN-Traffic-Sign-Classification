@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import csv
 import json
 import os
 import random
@@ -8,7 +9,10 @@ from typing import Any, Dict, List, Tuple
 import numpy as np
 from PIL import Image
 
-# Default class names (used if saved_models/class_labels.json is missing)
+import torch
+import torch.nn as nn
+from torchvision import models, transforms
+
 DEFAULT_CLASSES: List[str] = [
     "P.102 - No Entry",
     "P.130 - No Stopping or Parking",
@@ -22,22 +26,19 @@ DEFAULT_CLASSES: List[str] = [
 
 
 class TrafficSignPredictor:
-    """Unified inference engine for Deep Learning, SVM, and Boosting pipelines.
-    
-    Serves as an upgrade from DummyPredictor: automatically detects actual model
-    artifacts in `saved_models/` and seamlessly falls back to simulation mode
-    when checkpoints are not yet ready.
-    """
+    """Unified inference engine for Deep Learning, SVM, and Boosting pipelines."""
 
     def __init__(
         self,
         models_dir: str = "saved_models",
-        labels_path: str = "saved_models/class_labels.json",
-        img_size: Tuple[int, int] = (64, 64),
+        labels_json_path: str = "saved_models/class_labels.json",
+        labels_csv_path: str = "saved_models/class_table.csv",
+        img_size: Tuple[int, int] = (224, 224),
     ) -> None:
         self.models_dir = models_dir
         self.img_size = img_size
-        self.labels = self._load_labels(labels_path)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.labels = self._load_labels(labels_json_path, labels_csv_path)
         self.loaded_models: Dict[str, Any] = {}
         self.model_status: Dict[str, bool] = {
             "dl": False,
@@ -45,48 +46,89 @@ class TrafficSignPredictor:
             "boosting": False,
         }
 
+        # Chuẩn hóa tiền xử lý đầu vào theo chuẩn EfficientNetV2
+        self.dl_transform = transforms.Compose([
+            transforms.Resize(self.img_size),
+            transforms.ToTensor(),
+            transforms.Normalize(
+                mean=[0.485, 0.456, 0.406],
+                std=[0.229, 0.224, 0.225]
+            )
+        ])
+
         self._discover_and_load_models()
 
-    def _load_labels(self, labels_path: str) -> List[str]:
-        """Loads semantic class labels from JSON or falls back to defaults."""
-        if os.path.exists(labels_path):
+    def _load_labels(self, json_path: str, csv_path: str) -> List[str]:
+        """Loads semantic class labels from JSON or CSV."""
+        # 1. Thử load từ class_labels.json
+        if os.path.exists(json_path):
             try:
-                with open(labels_path, "r", encoding="utf-8") as f:
+                with open(json_path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                     if isinstance(data, dict):
                         return [data[str(i)] for i in range(len(data))]
                     elif isinstance(data, list):
                         return data
             except Exception as e:
-                print(f"[WARN] Failed to load {labels_path}: {e}. Using defaults.")
+                print(f"[WARN] Failed to load {json_path}: {e}")
+
+        # 2. Thử load từ class_table.csv
+        if os.path.exists(csv_path):
+            try:
+                classes = []
+                with open(csv_path, "r", encoding="utf-8") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        sign_name = row.get("sign_name") or row.get("name") or row.get("class_name")
+                        sign_code = row.get("sign_code") or row.get("id") or ""
+                        if sign_name:
+                            classes.append(f"{sign_code} - {sign_name}" if sign_code else sign_name)
+                if classes:
+                    return classes
+            except Exception as e:
+                print(f"[WARN] Failed to load {csv_path}: {e}")
+
         return DEFAULT_CLASSES
 
     def _discover_and_load_models(self) -> None:
-        """Discovers and loads trained checkpoints exported by teammates A, B, and C."""
-        # 1. Pipeline A: Deep Learning (.onnx preferred, fallback to .pth)
-        dl_onnx = os.path.join(self.models_dir, "dl_model.onnx")
-        dl_pth = os.path.join(self.models_dir, "dl_model.pth")
-        
-        if os.path.exists(dl_onnx):
-            try:
-                import onnxruntime as ort
-                self.loaded_models["dl"] = ort.InferenceSession(dl_onnx)
-                self.model_status["dl"] = True
-                print("[INFO] DL Model loaded successfully via ONNX Runtime.")
-            except Exception as e:
-                print(f"[WARN] ONNX Runtime failed to load: {e}")
-        elif os.path.exists(dl_pth):
-            try:
-                import torch
-                self.loaded_models["dl"] = torch.load(dl_pth, map_location=torch.device("cpu"))
-                if hasattr(self.loaded_models["dl"], "eval"):
-                    self.loaded_models["dl"].eval()
-                self.model_status["dl"] = True
-                print("[INFO] DL Model loaded successfully via PyTorch.")
-            except Exception as e:
-                print(f"[WARN] PyTorch checkpoint load failed: {e}")
+        """Discovers and loads trained checkpoints."""
+        # 1. Pipeline A: Deep Learning (EfficientNetV2-B0)
+        # Hỗ trợ cả dl_model.pt, checkpoint_best.pt, dl_model.pth
+        dl_candidates = [
+            os.path.join(self.models_dir, "checkpoint_best.pt"),
+            os.path.join(self.models_dir, "dl_model.pt"),
+            os.path.join(self.models_dir, "dl_model.pth"),
+        ]
+        dl_path = next((p for p in dl_candidates if os.path.exists(p)), None)
 
-        # 2. Pipeline B: Machine Learning - SVM (.joblib or .pkl)
+        if dl_path:
+            try:
+                num_classes = len(self.labels)
+                # Khởi tạo backbone EfficientNetV2-B0
+                model = models.efficientnet_v2_s(weights=None) if "v2_s" in dl_path else models.efficientnet_v2_b0(weights=None)
+                in_features = model.classifier[1].in_features
+                model.classifier[1] = nn.Linear(in_features, num_classes)
+
+                # Nạp checkpoint
+                checkpoint = torch.load(dl_path, map_location=self.device)
+                if isinstance(checkpoint, dict) and "state_dict" in checkpoint:
+                    model.load_state_dict(checkpoint["state_dict"])
+                elif isinstance(checkpoint, dict) and "model_state_dict" in checkpoint:
+                    model.load_state_dict(checkpoint["model_state_dict"])
+                elif isinstance(checkpoint, dict):
+                    model.load_state_dict(checkpoint)
+                else:
+                    model = checkpoint
+
+                model.to(self.device)
+                model.eval()
+                self.loaded_models["dl"] = model
+                self.model_status["dl"] = True
+                print(f"[INFO] Successfully loaded PyTorch DL checkpoint from {dl_path}")
+            except Exception as e:
+                print(f"[ERROR] Failed to load DL model from {dl_path}: {e}")
+
+        # 2. Pipeline B: Machine Learning - SVM
         for ext in ["joblib", "pkl"]:
             svm_path = os.path.join(self.models_dir, f"svm_pipeline.{ext}")
             if os.path.exists(svm_path):
@@ -94,12 +136,12 @@ class TrafficSignPredictor:
                     import joblib
                     self.loaded_models["svm"] = joblib.load(svm_path)
                     self.model_status["svm"] = True
-                    print(f"[INFO] SVM Pipeline loaded successfully from {svm_path}.")
+                    print(f"[INFO] Loaded SVM pipeline from {svm_path}")
                     break
                 except Exception as e:
-                    print(f"[WARN] SVM load failed: {e}")
+                    print(f"[WARN] Failed to load SVM model: {e}")
 
-        # 3. Pipeline C: Machine Learning - Boosting (.joblib or .pkl)
+        # 3. Pipeline C: Machine Learning - Boosting
         for ext in ["joblib", "pkl"]:
             boost_path = os.path.join(self.models_dir, f"boosting_pipeline.{ext}")
             if os.path.exists(boost_path):
@@ -107,22 +149,14 @@ class TrafficSignPredictor:
                     import joblib
                     self.loaded_models["boosting"] = joblib.load(boost_path)
                     self.model_status["boosting"] = True
-                    print(f"[INFO] Boosting Pipeline loaded successfully from {boost_path}.")
+                    print(f"[INFO] Loaded Boosting pipeline from {boost_path}")
                     break
                 except Exception as e:
-                    print(f"[WARN] Boosting load failed: {e}")
-
-    def preprocess_image(self, img_pil: Image.Image) -> np.ndarray:
-        """Preprocesses input image matching offline dataset specifications."""
-        img = img_pil.convert("RGB").resize(self.img_size)
-        arr = np.array(img, dtype=np.float32) / 255.0
-        return arr
+                    print(f"[WARN] Failed to load Boosting model: {e}")
 
     def _mock_predict(self, pipeline_key: str, top_k: int) -> Dict[str, Any]:
-        """Simulation fallback returning realistic synthetic metrics when weights are absent."""
+        """Simulation fallback returning realistic synthetic metrics."""
         start_time = time.perf_counter()
-        
-        # Simulate realistic latency differences between ML and DL architectures
         simulated_delay = 0.022 if pipeline_key == "dl" else 0.007
         time.sleep(simulated_delay)
 
@@ -146,35 +180,28 @@ class TrafficSignPredictor:
     def predict(
         self, img_pil: Image.Image, pipeline_key: str, top_k: int = 5
     ) -> Dict[str, Any]:
-        """Runs single-image inference on specified architecture with latency profiling."""
-        # Fall back to simulation if the requested checkpoint is not available
+        """Runs single-image inference."""
+        # Fallback chế độ mock nếu chưa có model thật
         if not self.model_status.get(pipeline_key, False):
             return self._mock_predict(pipeline_key, top_k)
 
         start_time = time.perf_counter()
-        arr = self.preprocess_image(img_pil)
+        img_rgb = img_pil.convert("RGB")
 
         try:
             if pipeline_key == "dl":
-                model_obj = self.loaded_models["dl"]
-                # ONNX Runtime inference
-                if hasattr(model_obj, "get_inputs"):
-                    tensor = np.transpose(arr, (2, 0, 1))[np.newaxis, ...].astype(np.float32)
-                    input_name = model_obj.get_inputs()[0].name
-                    raw_out = model_obj.run(None, {input_name: tensor})[0][0]
-                else:
-                    # PyTorch inference
-                    import torch
-                    tensor = torch.from_numpy(np.transpose(arr, (2, 0, 1))).unsqueeze(0).float()
-                    with torch.no_grad():
-                        raw_out = model_obj(tensor).squeeze(0).cpu().numpy()
+                model = self.loaded_models["dl"]
+                tensor = self.dl_transform(img_rgb).unsqueeze(0).to(self.device)
 
-                exp_vals = np.exp(raw_out - np.max(raw_out))
-                probs = exp_vals / np.sum(exp_vals)
+                with torch.no_grad():
+                    logits = model(tensor)
+                    probs = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+
             else:
-                # Scikit-learn / XGBoost pipeline inference
                 model = self.loaded_models[pipeline_key]
-                flat_input = arr.reshape(1, -1)
+                # Chuẩn hóa ảnh cho ML truyền thống
+                img_resized = img_rgb.resize((64, 64))
+                flat_input = (np.array(img_resized, dtype=np.float32) / 255.0).reshape(1, -1)
                 probs = model.predict_proba(flat_input)[0]
 
             k = min(top_k, len(probs))
