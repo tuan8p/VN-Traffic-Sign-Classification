@@ -1,25 +1,252 @@
+"""SVM training, evaluation and run artifacts."""
+
 from __future__ import annotations
+
+import logging
+import shutil
 from pathlib import Path
 from typing import Any
+
+import joblib
+import pandas as pd
+from sklearn.metrics import confusion_matrix, f1_score
+from sklearn.pipeline import Pipeline
+
+from vn_tsc.eval.metrics import compute_classification_metrics
 from vn_tsc.pipelines.base import BasePipeline
-from vn_tsc.runtime.wandb_gate import require_wandb
-from vn_tsc.utils.io import save_json, save_yaml
+from vn_tsc.pipelines.svm.data_adapter import SVMDataBundle, load_svm_data
+from vn_tsc.pipelines.svm.model import build_svm, validate_fit_data
+from vn_tsc.pipelines.svm.tuning import tune_svm
 from vn_tsc.runtime.pack import zip_run_dir
+from vn_tsc.runtime.wandb_gate import generate_run_name, require_wandb
+from vn_tsc.utils.io import load_json, save_json, save_yaml
+
+log = logging.getLogger(__name__)
+
+
+def _confusion_matrix_png(y_true, y_pred, class_names: list[str], path: Path) -> None:
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    matrix = confusion_matrix(y_true, y_pred, labels=list(range(len(class_names))))
+    size = min(18, max(6, len(class_names) * 0.45))
+    fig, ax = plt.subplots(figsize=(size, size))
+    image = ax.imshow(matrix, cmap="Blues")
+    fig.colorbar(image, ax=ax)
+    ax.set(xticks=range(len(class_names)), yticks=range(len(class_names)),
+           xticklabels=class_names, yticklabels=class_names,
+           xlabel="Predicted", ylabel="True")
+    plt.setp(ax.get_xticklabels(), rotation=90, ha="center")
+    fig.tight_layout()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fig.savefig(path, dpi=150)
+    plt.close(fig)
+
+
+def _score_split(model: Pipeline, X, y, class_names: list[str],
+                 common_class_ids: list[int] | None,
+                 figure: Path | None) -> dict[str, float]:
+    predictions = model.predict(X)
+    metrics = compute_classification_metrics(y, predictions, labels=list(range(len(class_names))))
+    if common_class_ids:
+        metrics["macro_f1_common"] = float(f1_score(
+            y, predictions, labels=common_class_ids, average="macro", zero_division=0,
+        ))
+    if figure is not None:
+        _confusion_matrix_png(y, predictions, class_names, figure)
+    return metrics
+
+
+def _model_details(model: Pipeline, data: SVMDataBundle, cfg: dict[str, Any]) -> dict[str, Any]:
+    reducer = model.named_steps["reduce_dim"]
+    details = {
+        "pipeline": "svm",
+        "feature_backend": data.feature_config["backend"],
+        "data_source": cfg["data_source"]["type"],
+        "dim_reduction": cfg["dim_reduction"]["method"],
+        "dim_reduction_config": cfg["dim_reduction"],
+        "feature_combination": [name for name in ("hog", "lbp", "color_hist")
+                                if data.feature_config[name].get("enabled")],
+        "train_with_aug": (bool(cfg.get("train", {}).get("with_aug", False))
+                           if cfg["data_source"]["type"] == "shared" else False),
+        "num_features_before_reduction": int(data.X_train.shape[1]),
+        "num_classes": len(data.class_names),
+        "class_names": data.class_names,
+        "svm_parameters": model.named_steps["svm"].get_params(),
+    }
+    if hasattr(reducer, "explained_variance_ratio_"):
+        details["pca_components_fitted"] = int(reducer.n_components_)
+        details["pca_variance_retained"] = float(reducer.explained_variance_ratio_.sum())
+    elif cfg["dim_reduction"]["method"] == "lda":
+        scaled = model.named_steps["scaler"].transform(data.X_train[:1])
+        details["lda_components_fitted"] = int(reducer.transform(scaled).shape[1])
+    return details
+
 
 class SVMPipeline(BasePipeline):
+    """Train and evaluate a classical SVM using fixed metadata splits."""
+
     name = "svm"
 
     def fit(self) -> dict[str, Any]:
-        entity = self.cfg.get("project", {}).get("wandb_entity", "P4AIDS_ML")
-        project = self.cfg.get("project", {}).get("wandb_project", "BTL")
-        require_wandb(entity=entity, project=project, enabled=self.cfg.get("train", {}).get("require_wandb", True))
-        save_yaml(self.cfg, self.run_dir / "resolved_config.yaml")
-        # TODO(team-svm): load shared features, fit scaler/PCA/SVM, log wandb
-        metrics = {"accuracy": None, "macro_f1": None, "status": "TODO"}
-        save_json(metrics, self.run_dir / "metrics.json")
-        if self.cfg.get("outputs", {}).get("zip_after_train", True):
-            zip_run_dir(self.run_dir)
-        return metrics
+        """Train on metadata train split and evaluate on validation by default."""
+        project = self.cfg["project"]
+        run_name = generate_run_name(
+            "svm", self.cfg,
+            user_name=self.cfg.get("train", {}).get("run_name"),
+            run_dir=self.run_dir,
+        )
+        kernel = self.cfg.get("model", {}).get("kernel", "rbf")
+        run = require_wandb(
+            entity=project["wandb_entity"],
+            project=project["wandb_project"],
+            enabled=self.cfg.get("train", {}).get("require_wandb", True),
+            name=run_name,
+            config=self.cfg,
+            tags=["svm", kernel, "classical_ml"],
+        )
+        try:
+            self.run_dir.mkdir(parents=True, exist_ok=True)
+            save_yaml(self.cfg, self.run_dir / "resolved_config.yaml")
+            data = load_svm_data(self.cfg)
+            log.info("SVM data shapes: train=%s val=%s test=%s", data.X_train.shape,
+                     data.X_val.shape, data.X_test.shape)
+            model = build_svm(self.cfg)
+            validate_fit_data(self.cfg, data.X_train, data.y_train)
+            log.info("Training SVM: kernel=%s C=%s gamma=%s reduction=%s",
+                     self.cfg["model"]["kernel"], self.cfg["model"]["C"],
+                     self.cfg["model"]["gamma"], self.cfg["dim_reduction"]["method"])
+            search = None
+            if self.cfg.get("tuning", {}).get("enabled", False):
+                search = tune_svm(model, data.X_train, data.y_train, self.cfg)
+                model = search.best_estimator_
+                save_json(search.best_params_, self.run_dir / "best_params.json")
+                pd.DataFrame(search.cv_results_).to_csv(self.run_dir / "cv_results.csv", index=False)
+            else:
+                model.fit(data.X_train, data.y_train)
+            figure = (self.run_dir / "figures" / "confusion_matrix_val.png"
+                      if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
+            val_metrics = _score_split(model, data.X_val, data.y_val, data.class_names,
+                                       data.common_class_ids, figure)
+            metrics: dict[str, Any] = {
+                "validation": val_metrics,
+                "train_samples": int(data.X_train.shape[0]),
+                "val_samples": int(data.X_val.shape[0]),
+                "feature_dimension": int(data.X_train.shape[1]),
+                "dim_reduction": self.cfg["dim_reduction"]["method"],
+                "primary_metric": self.cfg["metrics"]["primary"],
+            }
+            if search is not None:
+                metrics["best_cv_macro_f1"] = float(search.best_score_)
+                metrics["best_params"] = search.best_params_
+            eval_cfg = self.cfg.get("eval", {})
+            auto_eval = bool(eval_cfg.get("auto_eval_test",
+                             self.cfg.get("evaluation", {}).get("evaluate_test_after_train", True)))
+            if auto_eval:
+                figure = (self.run_dir / "figures" / "confusion_matrix_test.png"
+                          if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
+                metrics["test"] = _score_split(model, data.X_test, data.y_test,
+                                                data.class_names, data.common_class_ids, figure)
+                metrics["test_samples"] = int(data.X_test.shape[0])
+            if self.cfg.get("train", {}).get("save_model", True):
+                checkpoint = self.run_dir / "checkpoints" / "model.joblib"
+                checkpoint.parent.mkdir(parents=True, exist_ok=True)
+                joblib.dump(model, checkpoint)
+                log.info("Saved complete SVM Pipeline at %s", checkpoint)
+            metadata_dir = self.run_dir / "metadata"
+            save_json(data.label_map, metadata_dir / "label_map.json")
+            save_json(data.feature_config, metadata_dir / "feature_config.json")
+            if data.feature_report is not None:
+                save_json(data.feature_report, metadata_dir / "feature_report.json")
+                shutil.copy2(data.processed_root / "class_table.csv", metadata_dir / "class_table.csv")
+                save_json({"rare_class_threshold": self.cfg["metrics"]["rare_class_threshold"],
+                           "common_class_ids": data.common_class_ids},
+                          metadata_dir / "metric_policy.json")
+            save_json(_model_details(model, data, self.cfg), metadata_dir / "model_metadata.json")
+            save_json(metrics, self.run_dir / "metrics.json")
+            log.info("Validation: accuracy=%.4f macro_f1=%.4f weighted_f1=%.4f",
+                     val_metrics["accuracy"], val_metrics["macro_f1"], val_metrics["weighted_f1"])
+            if run is not None:
+                temporary = (data.feature_config["backend"] == "dev" or
+                             self.cfg["data_source"]["type"] == "dev")
+                if temporary:
+                    run.tags = tuple(set(run.tags or ()) | {"development", "temporary-preprocessing"})
+                run.config.update({"feature_backend": data.feature_config["backend"],
+                                   "temporary_experiment": temporary}, allow_val_change=True)
+                logged = {f"validation/{key}": value for key, value in val_metrics.items()}
+                # Unified W&B keys for fair comparison with DL and Boosting
+                logged.update({f"val/{key}": value for key, value in val_metrics.items()})
+                logged.update({"feature_dimension": metrics["feature_dimension"],
+                               "train_samples": metrics["train_samples"],
+                               "val_samples": metrics["val_samples"]})
+                if search is not None:
+                    logged["best_cv_macro_f1"] = metrics["best_cv_macro_f1"]
+                    logged["best_params"] = metrics["best_params"]
+                if "test" in metrics:
+                    logged.update({f"test_{key}": value for key, value in metrics["test"].items()})
+                    logged.update({f"test/{key}": value for key, value in metrics["test"].items()})
+                run.log(logged)
+
+                # Unified run.summary (if supported by wandb run object)
+                if hasattr(run, "summary") and run.summary is not None:
+                    run.summary.update({f"best_val/{key}": value for key, value in val_metrics.items()})
+                    run.summary["best_val_macro_f1"] = val_metrics.get("macro_f1", 0.0)
+                    run.summary["best_val_accuracy"] = val_metrics.get("accuracy", 0.0)
+                    run.summary["best_val_score"] = val_metrics.get(metrics.get("primary_metric", "macro_f1"), 0.0)
+                    if "test" in metrics:
+                        run.summary.update({f"test/{key}": value for key, value in metrics["test"].items()})
+                    checkpoint_path = self.run_dir / "checkpoints" / "model.joblib"
+                    if checkpoint_path.is_file():
+                        run.summary["checkpoint"] = str(checkpoint_path)
+
+                # Log confusion matrix figures if present
+                try:
+                    import wandb
+                    val_cm = self.run_dir / "figures" / "confusion_matrix_val.png"
+                    if val_cm.is_file():
+                        run.log({"media/confusion_matrix_val": wandb.Image(str(val_cm))})
+                    test_cm = self.run_dir / "figures" / "confusion_matrix_test.png"
+                    if test_cm.is_file():
+                        run.log({"media/confusion_matrix_test": wandb.Image(str(test_cm))})
+                except Exception:
+                    pass
+            if self.cfg["outputs"].get("zip_after_train", False):
+                zip_run_dir(self.run_dir)
+            return metrics
+        finally:
+            if run is not None:
+                run.finish()
 
     def evaluate(self) -> dict[str, Any]:
-        raise NotImplementedError("TODO(team-svm): evaluate")
+        """Evaluate a saved checkpoint on val or the held-out test split."""
+        split = self.cfg.get("eval", {}).get("split", "test")
+        if split not in ("val", "test"):
+            raise ValueError("Evaluation split must be 'val' or 'test'")
+        checkpoint = self.run_dir / "checkpoints" / "model.joblib"
+        if not checkpoint.is_file():
+            raise FileNotFoundError(f"SVM checkpoint not found: {checkpoint}")
+        data = load_svm_data(self.cfg)
+        saved_features = load_json(self.run_dir / "metadata" / "feature_config.json")
+        saved_labels = load_json(self.run_dir / "metadata" / "label_map.json")
+        if saved_features != data.feature_config or saved_labels != data.label_map:
+            raise ValueError("Current feature configuration or label map differs from saved model")
+        if data.feature_report is not None:
+            saved_report = load_json(self.run_dir / "metadata" / "feature_report.json")
+            if saved_report != data.feature_report:
+                raise ValueError("Current shared feature report differs from saved model")
+            saved_table = (self.run_dir / "metadata" / "class_table.csv").read_bytes()
+            if saved_table != (data.processed_root / "class_table.csv").read_bytes():
+                raise ValueError("Current shared class table differs from saved model")
+        model = joblib.load(checkpoint)
+        figure = (self.run_dir / "figures" / f"confusion_matrix_{split}.png"
+                  if self.cfg["outputs"].get("save_confusion_matrix", False) else None)
+        X, y = getattr(data, f"X_{split}"), getattr(data, f"y_{split}")
+        result = _score_split(model, X, y, data.class_names,
+                              data.common_class_ids, figure)
+        metrics_path = self.run_dir / "metrics.json"
+        metrics = load_json(metrics_path) if metrics_path.exists() else {}
+        metrics[split] = result
+        metrics[f"{split}_samples"] = int(X.shape[0])
+        save_json(metrics, metrics_path)
+        return result
