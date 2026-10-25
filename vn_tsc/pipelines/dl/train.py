@@ -32,6 +32,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 from pathlib import Path
 from typing import Any
 import warnings
@@ -61,7 +62,7 @@ else:
     def _grad_scaler(enabled: bool):
         return _GradScaler(enabled=enabled)
 
-from vn_tsc.data.dataset import load_split
+from vn_tsc.data.dataset import load_split, load_split_mmaps_for_dl, materialize_dl_arrays
 from vn_tsc.data.preprocess_online import build_eval_transforms, build_train_transforms
 from vn_tsc.eval.metrics import compute_classification_metrics
 from vn_tsc.pipelines.base import BasePipeline
@@ -150,23 +151,26 @@ def _build_loader(
     pin_memory: bool,
     use_ddp: bool,
     seed: int = 42,
+    X_aug: np.ndarray | None = None,
+    y_aug: np.ndarray | None = None,
 ) -> DataLoader:
-    dataset = NpyDataset(X, y, transform=transform)
+    dataset = NpyDataset(X, y, transform=transform, X_aug=X_aug, y_aug=y_aug)
     sampler = DistributedSampler(dataset, shuffle=shuffle, seed=seed) if use_ddp else None
     generator = torch.Generator().manual_seed(seed) if shuffle else None
-    return DataLoader(
-        dataset,
+    persistent = num_workers > 0 and sys.platform != "win32"
+    loader_kwargs: dict[str, Any] = dict(
         batch_size=batch_size,
         shuffle=(shuffle and sampler is None),
         sampler=sampler,
         num_workers=num_workers,
         pin_memory=pin_memory,
-        drop_last=shuffle,   # drop incomplete batch for train only
-        # persistent_workers requires num_workers > 0 and is not supported on
-        # Windows with the default 'spawn' start method when using mmap arrays.
-        persistent_workers=False,
+        drop_last=shuffle,
+        persistent_workers=persistent,
         generator=generator,
     )
+    if num_workers > 0:
+        loader_kwargs["prefetch_factor"] = 2
+    return DataLoader(dataset, **loader_kwargs)
 
 
 def _make_optimizer(model: nn.Module, lr: float, weight_decay: float) -> torch.optim.Optimizer:
@@ -519,15 +523,42 @@ class DLPipeline(BasePipeline):
         # ---- Data ----
         if is_main:
             log.info("Loading training data (with_aug=%s)…", with_aug)
-        X_train, y_train = load_split("train", cfg["data"]["processed_root"], with_aug=with_aug)
-        X_val, y_val = load_split("val", cfg["data"]["processed_root"])
+        X_train, y_train, X_aug, y_aug = load_split_mmaps_for_dl(
+            "train", cfg["data"]["processed_root"], with_aug=with_aug,
+        )
+        X_val, y_val, _, _ = load_split_mmaps_for_dl("val", cfg["data"]["processed_root"])
+
+        materialize = bool(cfg.get("data", {}).get("materialize_images", False))
+        processed_root_str = str(cfg["data"]["processed_root"])
+        if not materialize and "/kaggle/input" in processed_root_str.replace("\\", "/"):
+            materialize = True
+            if is_main:
+                log.warning(
+                    "processed_root is on Kaggle Input; enabling materialize_images "
+                    "(copy data to /kaggle/working in the notebook to speed this up)"
+                )
+        if materialize:
+            if is_main:
+                log.info("Materializing train/val image arrays into RAM (one-time)…")
+            import time as _time
+
+            t0 = _time.perf_counter()
+            X_train, y_train, X_aug, y_aug = materialize_dl_arrays(
+                X_train, y_train, X_aug, y_aug,
+            )
+            X_val = np.ascontiguousarray(np.asarray(X_val))
+            y_val = np.asarray(y_val)
+            if is_main:
+                log.info("Materialized in %.1fs", _time.perf_counter() - t0)
 
         num_classes = _num_classes_from_table(cfg["data"]["processed_root"], cfg)
+        train_count = len(y_train) + (len(y_aug) if y_aug is not None else 0)
 
         if is_main:
             log.info(
-                "Data: train=%d val=%d num_classes=%d image_shape=%s",
-                len(X_train), len(X_val), num_classes, X_train.shape[1:],
+                "Data: train=%d val=%d num_classes=%d image_shape=%s (mmap aug=%s)",
+                train_count, len(y_val), num_classes, X_train.shape[1:],
+                y_aug is not None,
             )
 
         train_tf = build_train_transforms(cfg)
@@ -537,10 +568,12 @@ class DLPipeline(BasePipeline):
         seed = int(cfg.get("seed", 42))
         set_seed(seed)
 
-        train_loader = _build_loader(X_train, y_train, train_tf, batch_size,
-                                     shuffle=True, num_workers=num_workers,
-                                     pin_memory=pin_memory, use_ddp=use_ddp,
-                                     seed=seed)
+        train_loader = _build_loader(
+            X_train, y_train, train_tf, batch_size,
+            shuffle=True, num_workers=num_workers,
+            pin_memory=pin_memory, use_ddp=use_ddp,
+            seed=seed, X_aug=X_aug, y_aug=y_aug,
+        )
         val_loader = _build_loader(X_val, y_val, eval_tf, batch_size * 2,
                                    shuffle=False, num_workers=num_workers,
                                    pin_memory=pin_memory, use_ddp=False,
@@ -703,7 +736,7 @@ class DLPipeline(BasePipeline):
 
         metrics: dict[str, Any] = {
             "validation": best_val,
-            "train_samples": int(len(X_train)),
+            "train_samples": int(train_count),
             "val_samples": int(len(X_val)),
             "num_classes": num_classes,
             "stage1_best": stage1_metrics,

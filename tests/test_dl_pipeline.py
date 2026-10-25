@@ -11,6 +11,7 @@ import torch.nn as nn
 from torch.utils.data import DataLoader
 
 from vn_tsc.config.resolve import resolve_config
+from vn_tsc.data.dataset import materialize_dl_arrays
 from vn_tsc.pipelines.dl.dataset import NpyDataset
 from vn_tsc.data.preprocess_online import build_eval_transforms, build_train_transforms
 from vn_tsc.eval.metrics import compute_classification_metrics
@@ -135,11 +136,36 @@ def test_npy_dataset_and_loader(dl_config):
     dataset = NpyDataset(X, y, transform=eval_tf)
     assert len(dataset) == num_samples
 
-    img, label = dataset[0]
+
+def test_materialize_dl_arrays_contiguous() -> None:
+    X = np.random.randint(0, 256, (4, 8, 8, 3), dtype=np.uint8)
+    y = np.arange(4, dtype=np.int64)
+    Xa = np.random.randint(0, 256, (2, 8, 8, 3), dtype=np.uint8)
+    ya = np.array([0, 1], dtype=np.int64)
+    Xm, ym, Xam, yam = materialize_dl_arrays(X, y, Xa, ya)
+    assert Xm.flags["C_CONTIGUOUS"]
+    assert Xam is not None and Xam.flags["C_CONTIGUOUS"]
+    assert len(Xm) == 4 and len(Xam) == 2
+
+
+def test_npy_dataset_with_aug_extension(dl_config):
+    """Train+aug as separate arrays (no RAM concat) matches concatenated length."""
+    n, m = 6, 4
+    X = np.random.randint(0, 256, (n, 224, 224, 3), dtype=np.uint8)
+    y = np.arange(n, dtype=np.int64)
+    Xa = np.random.randint(0, 256, (m, 224, 224, 3), dtype=np.uint8)
+    ya = np.arange(m, dtype=np.int64) + 10
+    eval_tf = build_eval_transforms(dl_config)
+    ds = NpyDataset(X, y, transform=eval_tf, X_aug=Xa, y_aug=ya)
+    assert len(ds) == n + m
+    _, lab_aug = ds[n]
+    assert lab_aug == 10
+
+    img, label = ds[0]
     assert img.shape == (3, 224, 224)
     assert isinstance(label, int)
 
-    loader = DataLoader(dataset, batch_size=4, shuffle=False)
+    loader = DataLoader(ds, batch_size=4, shuffle=False)
     for bx, by in loader:
         assert bx.shape == (4, 3, 224, 224)
         assert by.shape == (4,)
