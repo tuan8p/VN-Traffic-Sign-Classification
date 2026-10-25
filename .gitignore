@@ -31,3 +31,7 @@ wandb/
 *.zip
 .DS_Store
 Thumbs.db
+saved_models/*.pt
+saved_models/*.joblib
+saved_models/*.npy
+*.zip
