@@ -19,7 +19,7 @@ data/processed/**
 data/svm_dev_processed/**
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-outputs/**
+# outputs/**
 !outputs/.gitkeep
 wandb/
 .cache/

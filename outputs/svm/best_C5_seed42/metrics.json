@@ -1,0 +1,20 @@
+{
+  "validation": {
+    "accuracy": 0.9834983498349835,
+    "macro_f1": 0.9814384853919962,
+    "weighted_f1": 0.9834430063855861,
+    "macro_f1_common": 0.9816615702662511
+  },
+  "train_samples": 13015,
+  "val_samples": 1212,
+  "feature_dimension": 2020,
+  "dim_reduction": "none",
+  "primary_metric": "macro_f1",
+  "test": {
+    "accuracy": 0.9851607584501236,
+    "macro_f1": 0.9618530944263056,
+    "weighted_f1": 0.9849848876447881,
+    "macro_f1_common": 0.98495349505111
+  },
+  "test_samples": 1213
+}

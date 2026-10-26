@@ -1,0 +1,168 @@
+project:
+  name: VN-Traffic-Sign-Classification
+  wandb_entity: P4AIDS_ML
+  wandb_project: BTL
+seed: 42
+data:
+  root: ''
+  raw_subdir: raw
+  processed_subdir: processed
+  image_extensions:
+  - jpg
+  - jpeg
+  - png
+  - bmp
+  - webp
+  layout: auto
+  images_dirname: images
+  labels_dirname: labels
+  class_table: configs/classes.csv
+  num_classes: 52
+  processed_root: /kaggle/input/datasets/nguyntrungan/vnts-processed
+preprocess:
+  image_size:
+  - 224
+  - 224
+  color_mode: rgb
+  keep_aspect: true
+  cache_format: npy
+  bbox_crop:
+    enabled: true
+    context_margin: 0.15
+    min_box_px: 12
+    pad_value: 114
+    pad_mode: constant
+split:
+  strategy: stratified_group
+  ratios:
+    train: 0.7
+    val: 0.15
+    test: 0.15
+  use_provided_splits: false
+  group_by: source_image_cluster
+  dedup:
+    enabled: true
+    hash: dhash
+    hash_size: 16
+    max_hamming: 24
+  min_train_per_class: 1
+features:
+  input_size:
+  - 64
+  - 64
+  hog:
+    enabled: true
+    orientations: 9
+    pixels_per_cell:
+    - 8
+    - 8
+    cells_per_block:
+    - 2
+    - 2
+  lbp:
+    enabled: true
+    p: 8
+    r: 1
+    grid:
+    - 4
+    - 4
+  color_hist:
+    enabled: true
+    bins: 32
+    color_space: hsv
+  standardize: true
+  backend: shared
+augment:
+  enabled: true
+  target_count: 300
+  max_multiplier: 8
+  hflip: false
+  vflip: false
+  ops:
+    rotate_deg: 10
+    scale_jitter: 0.1
+    translate_frac: 0.05
+    brightness: 0.25
+    contrast: 0.25
+    saturation: 0.15
+    gaussian_blur_sigma: 1.2
+    motion_blur_ksize: 7
+    gaussian_noise_std: 12
+    jpeg_quality:
+    - 40
+    - 90
+metrics:
+  primary: macro_f1
+  report:
+  - accuracy
+  - macro_f1
+  - weighted_f1
+  rare_class_threshold: 30
+train_common:
+  early_stopping_patience: 10
+  max_epochs_or_rounds: 100
+eval:
+  auto_eval_test: true
+evaluation:
+  evaluate_test_after_train: true
+outputs:
+  root: outputs
+  zip_after_train: true
+  save_confusion_matrix: true
+  save_curves: true
+pipeline: svm
+experiment_seeds:
+- 7
+- 21
+- 123
+- 2026
+data_source:
+  type: shared
+  processed_root: /kaggle/input/datasets/nguyntrungan/vnts-processed
+dim_reduction:
+  method: none
+  pca:
+    n_components: 0.95
+    whiten: false
+  lda:
+    n_components: null
+    solver: svd
+model:
+  estimator: svc
+  kernel: rbf
+  C: 5.0
+  gamma: scale
+  degree: 3
+  coef0: 0.0
+  class_weight: balanced
+  probability: false
+  decision_function_shape: ovo
+train:
+  require_wandb: true
+  save_model: true
+  with_aug: true
+  run_name: svm_rbf_C5.0_none_aug_seed42
+tuning:
+  enabled: false
+  method: grid
+  cv_folds: 5
+  scoring: f1_macro
+  n_jobs: -1
+  n_iter: 20
+  param_grid:
+    svm__C:
+    - 0.1
+    - 1.0
+    - 10.0
+    svm__gamma:
+    - scale
+    - auto
+runtime_cfg:
+  runtime: kaggle_2xt4
+  device: cuda
+  num_workers: 2
+  pin_memory: true
+  gpus: 2
+  mixed_precision: true
+  ddp: true
+  n_jobs: -1
