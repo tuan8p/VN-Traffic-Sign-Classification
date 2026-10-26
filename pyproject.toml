@@ -28,7 +28,7 @@ dependencies = [
 [project.optional-dependencies]
 boosting = ["lightgbm>=4.0", "xgboost>=2.0"]
 dl = ["torch>=2.1", "torchvision>=0.16", "timm>=0.9"]
-demo = ["streamlit>=1.28"]
+demo = ["streamlit>=1.28", "plotly>=5.18"]
 dev = ["pytest>=7.4", "ruff>=0.1"]
 all = ["vn-tsc[boosting,dl,demo,dev]"]
 

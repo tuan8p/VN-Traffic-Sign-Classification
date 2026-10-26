@@ -1,86 +1,90 @@
-# Module Web Demo: Nhận Diện & Đánh Giá Biển Báo Giao Thông Việt Nam
+# Demo Streamlit — So sánh 3 pipeline
 
-Ứng dụng web trực quan (xây dựng trên nền tảng **Streamlit**) phục vụ kiểm thử, so sánh đối đầu thực nghiệm về độ chính xác và độ trễ suy luận giữa **3 pipeline mô hình** (Deep Learning, SVM, Gradient Boosting) trên bộ dữ liệu chuẩn hóa 52 lớp biển báo giao thông Việt Nam.
+Ứng dụng web (**Streamlit**) để **suy luận và so sánh** trên cùng một ảnh biển báo:
 
----
+1. **Deep Learning** — EfficientNetV2-B0 (`timm`), ảnh RGB 224×224, ImageNet normalize  
+2. **SVM** — vector 2020 chiều (HOG + LBP + HSV histogram), hỗ trợ **OvO → xác suất qua voting**  
+3. **Gradient Boosting** — LightGBM trên cùng vector + `StandardScaler`
 
-## 1. Tính năng nổi bật & Giao diện ứng dụng
+Nhãn hiển thị: **mã biển + tên tiếng Việt** (52 lớp), đọc từ `class_table.csv`.
 
-### 1.1. Thu thập & Nạp dữ liệu đầu vào (Input Acquisition)
-- **Cố định linh hoạt (Sticky Layout):** Khối nhập ảnh và thanh điều khiển được ghim cố định (`sticky`) ở cột bên trái, luôn bám theo màn hình khi cuộn trang để thuận tiện theo dõi cùng lúc với các biểu đồ và bảng kết quả so sánh.
-- **Nguồn ảnh đa dạng:**
-  - **Tải / Kéo thả ảnh:** Hỗ trợ nhận diện hầu hết các định dạng ảnh phổ biến (`PNG`, `JPG`, `JPEG`, `WEBP`, `BMP`, `TIFF`, `TIF`, `GIF`, `AVIF`, `ICO`).
-  - **Thư viện ảnh mẫu (Preset Gallery):** Tự động quét và nạp các mẫu ảnh test thực tế từ thư mục `demo/sample_images/`, hiển thị kèm mã và tên tiếng Việt để phục vụ demo nhanh.
-- **Điều chỉnh số lượng dự đoán (Top-K):** Tích hợp thanh trượt trực tiếp tại màn hình chính, cho phép chọn linh hoạt từ 1 đến 5 ứng viên có xác suất cao nhất.
+## Cấu trúc mã
 
-### 1.2. Động cơ suy luận hợp nhất 3 Pipeline (Multi-Pipeline Inference)
-Chạy suy luận song song đối đầu trên cùng một ảnh đầu vào:
-1. **Deep Learning:** Mô hình mạng tích chập **EfficientNetV2-B0** (`checkpoint_best.pt`), thực hiện chuẩn hóa tensor RGB $224 \times 224$ và tính xác suất qua hàm Softmax.
-2. **Bộ phân loại SVM:** Mô hình **Support Vector Machine (SVC)** (`svm.joblib`), trích xuất vector đặc trưng kết hợp 2020 chiều (HOG + LBP + HSV Color Histogram), tính điểm phân loại qua cơ chế biểu quyết cặp One-vs-One (OvO).
-3. **Gradient Boosting:** Mô hình **LightGBM** (`boosting.joblib`), sử dụng vector đặc trưng 2020 chiều qua bộ chuẩn hóa `scaler.joblib`.
-- **Ánh xạ nhãn tiếng Việt tự động:** Đọc và đồng bộ danh mục 52 lớp biển báo trực tiếp từ `class_table.csv`, hiển thị trực quan cả mã biển chuẩn (ví dụ: `P.131a`, `W.224`) kèm tên đầy đủ tiếng Việt (ví dụ: `Cấm đỗ xe`, `Đường người đi bộ cắt ngang`).
+| File | Vai trò |
+| ------ | --------- |
+| `app.py` | Giao diện: upload / gallery, Top-K, chạy 3 model, biểu đồ Plotly, bảng chi tiết |
+| `inference.py` | `TrafficSignPredictor`: nạp weight, preprocess, predict, đo latency |
+| `sample_images/` | Ảnh mẫu (quét tự động trong UI) |
 
-### 1.3. Trực quan hóa & So sánh hiệu năng
-- **Thẻ kết quả gióng hàng đồng nhất:** 3 thẻ thông tin tương ứng với 3 mô hình được căn gióng hàng thẳng tuyệt đối, hiển thị:
-  - Tên mô hình & kiến trúc.
-  - Trạng thái thực thi (`Mô hình thực thi` hoặc `Mô phỏng dự phòng`).
-  - Mã biển báo và tên tiếng Việt.
-  - Độ tin cậy (Confidence %).
-  - Thời gian suy luận (Latency tính bằng mili-giây trên CPU).
-- **Biểu đồ so sánh Top-K:** Biểu đồ cột nhóm (Grouped Bar Chart qua Plotly) biểu diễn phân phối xác suất phân vân giữa các mô hình.
-- **Biểu đồ đo lường độ trễ (Latency Profiling):** Biểu đồ thanh ngang so sánh trực quan tốc độ phản hồi thực tế (ms) giữa các kiến trúc.
-- **Bảng chi tiết dự đoán:** Bảng tổng hợp kèm thanh tiến trình (`ProgressColumn`) biểu diễn chi tiết độ tin cậy của từng ứng viên.
+Chạy app từ **root repo** (để `saved_models/` resolve đúng):
 
----
+```bash
+streamlit run demo/app.py
+```
 
-## 2. Cấu trúc thư mục mô hình (`saved_models/`)
+URL: [http://localhost:8501](http://localhost:8501)
 
-Để ứng dụng nạp trọng số thực thi thành công, thư mục `saved_models/` cần đảm bảo các tệp sau:
+## Cài đặt
+
+```bash
+cd VN-Traffic-Sign-Classification
+python -m venv .venv
+# Windows: .venv\Scripts\activate
+pip install -U pip
+pip install -r requirements.txt
+# hoặc tối thiểu demo + DL + ML:
+# pip install -e ".[demo,dl,boosting]"
+```
+
+Phụ thuộc chính: `streamlit`, `plotly`, `torch`, `torchvision`, `timm`, `opencv-python-headless`, `scikit-image`, `scikit-learn`, `lightgbm`, `joblib`, `pandas`, `Pillow`.
+
+## Thư mục `saved_models/` (artifact suy luận)
+
+Mặc định engine tìm **`saved_models/`** ở root repo. Các file được **tự quét** theo tên:
 
 ```text
 saved_models/
-├── checkpoint_best.pt       # Trọng số mô hình Deep Learning (EfficientNetV2-B0)
-├── svm.joblib               # Mô hình SVM (Pipeline SVC OvO)
-├── boosting.joblib          # Mô hình Gradient Boosting (LightGBM)
-├── scaler.joblib            # StandardScaler chuẩn hóa 2020 đặc trưng (HOG + LBP + Color Hist)
-└── class_table.csv          # Bảng từ điển 52 nhãn (cột sign_code và name_vi)
+├── class_table.csv          # Khuyến nghị: 52 dòng (sign_code, name_vi, …)
+├── scaler.joblib            # StandardScaler fit trên train (ML)
+├── checkpoint_best.pt       # DL — ưu tiên (state_dict PyTorch)
+│   # hoặc dl_model.pt
+├── svm.joblib               # SVM (cũng thử: svm.pkl, svm_pipeline.joblib, …)
+└── boosting.joblib          # LightGBM (cũng thử: model.joblib, boosting_pipeline.joblib, …)
 ```
 
----
+### Copy từ kết quả train
 
-## 3. Hướng dẫn Cài đặt & Khởi chạy
+| Pipeline | Nguồn gợi ý |
+| ---------- | ------------- |
+| DL | `outputs/dl/<run_id>/checkpoints/checkpoint_best.pt` → `saved_models/checkpoint_best.pt` |
+| SVM | `outputs/svm/<run_id>/checkpoints/` (model + scaler) hoặc artifact team export |
+| Boosting | `outputs/boosting/<run_id>/checkpoints/model.joblib` + `data/processed/features/scaler.joblib` → `scaler.joblib` |
+| Nhãn | `data/processed/class_table.csv` → `saved_models/class_table.csv` |
 
-### Yêu cầu tiên quyết
-- Python 3.9+
-- Môi trường ảo (`venv` hoặc `conda`)
+Repo có thể kèm sẵn metadata JSON trong `saved_models/` (báo cáo test) — **không** thay thế file model.
 
-### Bước 1: Khởi tạo và kích hoạt môi trường ảo
-```bash
-# Di chuyển vào thư mục gốc của repository
-cd VN-Traffic-Sign-Classification
+## Hành vi UI
 
-# Tạo môi trường ảo
-python3 -m venv venv
+- **Hai cột:** nhập ảnh (trái) / kết quả & biểu đồ (phải).
+- **Nguồn ảnh:** upload (PNG, JPG, WEBP, …) hoặc **Thư viện ảnh mẫu** (`demo/sample_images/`).
+- **Top-K:** 1–5 lớp có xác suất cao nhất **mỗi** model.
+- Nút **「Chạy nhận diện và so sánh mô hình」** chạy lần lượt cả 3 pipeline trên cùng ảnh.
+- **Trạng thái:**
+  - *Mô hình thực thi* — load weight thành công (`is_mock=False`).
+  - *Mô phỏng dự phòng* — thiếu file hoặc lỗi inference → kết quả ngẫu nhiên (chỉ để xem UI).
 
-# Kích hoạt môi trường ảo (Linux / macOS / WSL)
-source venv/bin/activate
+## Lưu ý kỹ thuật (fair compare)
 
-# Hoặc kích hoạt trên Windows PowerShell:
-# .\venv\Scripts\Activate.ps1
-```
+- Demo **crop/resize ảnh full-frame** do người dùng upload; **không** chạy YOLO detect như pipeline preprocess.
+- DL dùng pipeline ảnh giống train (224, normalize). ML **trích xuất lại** HOG/LBP/color tại **64×64** (cùng tinh thần `vn_tsc/features/classical.py`); cần **`scaler.joblib` đúng** với lúc train thì SVM/Boosting mới khớp metric offline.
+- SVM không có `predict_proba`: app dùng `decision_function` + **OvO voting** (1326 cặp → 52 lớp).
+- GPU: DL tự dùng CUDA nếu có; ML chủ yếu CPU.
 
-### Bước 2: Cài đặt các thư viện cần thiết
-```bash
-pip install streamlit torch torchvision timm scikit-learn scikit-image lightgbm opencv-python pillow pandas plotly
-```
+## Khắc phục sự cố
 
-### Bước 3: Khởi chạy ứng dụng Streamlit
-```bash
-python3 -m streamlit run demo/app.py
-```
-
-### Bước 4: Mở giao diện trên trình duyệt
-Mở trình duyệt web và truy cập địa chỉ:
-```text
-http://localhost:8501
-```
+| Triệu chứng | Gợi ý |
+| ------------- | -------- |
+| Cả 3 model đều “Mô phỏng” | Kiểm tra `saved_models/` và tên file; xem log terminal khi Streamlit khởi động |
+| DL load lỗi | Checkpoint phải khớp `tf_efficientnetv2_b0`, 52 classes; thử `strict=True` state_dict |
+| ML sai lớc / xác suất lạ | Copy lại `scaler.joblib` từ preprocess; đảm bảo `class_table.csv` đủ 52 lớp |
+| Không có ảnh mẫu | Thêm file vào `demo/sample_images/` |

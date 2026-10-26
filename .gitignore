@@ -14,13 +14,14 @@ venv/
 .ipynb_checkpoints/
 .idea/
 .vscode/
-data/raw/**
-data/processed/**
-data/svm_dev_processed/**
-!data/raw/.gitkeep
-!data/processed/.gitkeep
-outputs/**
-!outputs/.gitkeep
+# Local datasets and training runs (never commit bulk artifacts)
+/data/
+!/data/raw/
+!/data/raw/.gitkeep
+!/data/processed/
+!/data/processed/.gitkeep
+/outputs/
+!/outputs/.gitkeep
 wandb/
 .cache/
 *.pt

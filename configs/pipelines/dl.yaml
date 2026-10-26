@@ -16,8 +16,8 @@ model:
     use_flash_attn: false
 
 train:
-  batch_size: 64
-  epochs: 30               # Full end-to-end training (smooth continuous curves)
+  batch_size: 384
+  epochs: 150               # Full end-to-end training (smooth continuous curves)
   warmup_epochs: 5         # Linear warmup for first 5 epochs
   lr: 3.0e-4
   weight_decay: 1.0e-4
@@ -31,7 +31,7 @@ train:
 
 aug:
   hflip: false             # LOCKED: mirror-pair classes exist (see shared.yaml)
-  color_jitter: 0.1
+  color_jitter: 0.0
   random_resized_crop: false
 
 distributed:
