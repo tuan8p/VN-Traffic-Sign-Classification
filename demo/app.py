@@ -16,9 +16,11 @@ from PIL import Image
 # =========================================================
 
 CURRENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = CURRENT_DIR.parent
 
-if str(CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CURRENT_DIR))
+for import_root in (REPO_ROOT, CURRENT_DIR):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from inference import TrafficSignPredictor
 

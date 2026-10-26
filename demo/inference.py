@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import random
+import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
@@ -12,6 +13,12 @@ from PIL import Image
 
 import torch
 from torchvision import transforms
+
+# Streamlit adds demo/ rather than the repository root to sys.path when the app
+# is launched via an absolute path or from another working directory.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from vn_tsc.pipelines.svm.inference import extract_svm_image_features, svm_class_scores
 
