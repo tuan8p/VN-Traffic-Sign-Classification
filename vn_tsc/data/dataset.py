@@ -146,6 +146,51 @@ def load_split(
     return np.concatenate([np.asarray(X), np.asarray(Xa)]), np.concatenate([y, ya])
 
 
+def load_split_mmaps_for_dl(
+    split: str,
+    processed_root: str | Path = DEFAULT_PROCESSED,
+    with_aug: bool = False,
+    mmap: bool = True,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Load image splits for DL without materializing ``train``+``train_aug`` into RAM.
+
+    Returns ``(X, y, X_aug, y_aug)``. Aug arrays are ``None`` when ``with_aug`` is
+    false or aug files are missing. Keeps memory-mapped .npy on disk until each
+    batch is read — avoids multi-minute ``np.asarray`` on Kaggle input mounts.
+    """
+    root = Path(processed_root)
+    X, y = _load_pair(root, split, mmap)
+    if split != "train" or not with_aug:
+        return X, y, None, None
+    xa_path = root / "images" / "X_train_aug.npy"
+    if not xa_path.exists():
+        return X, y, None, None
+    Xa, ya = _load_pair(root, "train_aug", mmap)
+    return X, y, Xa, ya
+
+
+def materialize_dl_arrays(
+    X: np.ndarray,
+    y: np.ndarray,
+    X_aug: np.ndarray | None = None,
+    y_aug: np.ndarray | None = None,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray | None, np.ndarray | None]:
+    """Copy mmap / non-contiguous image arrays into RAM for fast shuffled training.
+
+    ~2 GB for full VNTS train+aug — one-time cost at startup, then epochs avoid
+    slow random reads from ``/kaggle/input`` mounts.
+    """
+    X = np.ascontiguousarray(np.asarray(X))
+    y = np.asarray(y)
+    if X_aug is None and y_aug is None:
+        return X, y, None, None
+    if X_aug is None or y_aug is None:
+        raise ValueError("X_aug and y_aug must both be set or both omitted")
+    X_aug = np.ascontiguousarray(np.asarray(X_aug))
+    y_aug = np.asarray(y_aug)
+    return X, y, X_aug, y_aug
+
+
 # Alias for DL pipeline backward-compatibility
 load_npy_split = load_split
 

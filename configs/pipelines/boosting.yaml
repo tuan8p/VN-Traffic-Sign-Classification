@@ -3,9 +3,9 @@ inherits: configs/shared.yaml
 
 model:
   backend: lightgbm
-  num_leaves: 63
-  learning_rate: 0.05
-  n_estimators: 150
+  num_leaves: 15
+  learning_rate: 0.03
+  n_estimators: 300
   subsample: 0.9
   colsample_bytree: 0.9
   class_weight: balanced
