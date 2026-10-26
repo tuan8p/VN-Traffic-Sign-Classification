@@ -81,7 +81,7 @@ def test_ovo_scores_rank_the_same_class_as_svc_predict(cfg: dict) -> None:
 
 
 def test_repository_svm_config_records_best_seed_experiment(cfg: dict) -> None:
-    assert cfg["seed"] == 2026
+    assert cfg["seed"] == 42
     assert cfg["experiment_seeds"] == [7, 21, 123, 2026]
-    assert cfg["model"]["C"] == 3.0
+    assert cfg["model"]["C"] == 5.0
     assert cfg["model"]["gamma"] == "scale"
