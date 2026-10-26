@@ -2,17 +2,20 @@ from __future__ import annotations
 
 import csv
 import json
+import os
 import random
 import sys
 import time
 from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
+# PyTorch and LightGBM may load conflicting OpenMP runtimes on macOS. Keeping
+# native inference single-threaded prevents LightGBM from crashing in __setstate__.
+if sys.platform == "darwin":
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+
 import numpy as np
 from PIL import Image
-
-import torch
-from torchvision import transforms
 
 # Streamlit adds demo/ rather than the repository root to sys.path when the app
 # is launched via an absolute path or from another working directory.
@@ -34,7 +37,9 @@ class TrafficSignPredictor:
         repo_root = Path(__file__).resolve().parents[1]
         self.models_dir = Path(models_dir) if models_dir else repo_root / "saved_models"
         self.img_size = img_size
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.device = None
+        self.dl_transform = None
+        self._torch = None
         self.labels = self._load_labels()
         self.loaded_models: Dict[str, Any] = {}
         self.scaler = None
@@ -46,14 +51,6 @@ class TrafficSignPredictor:
             "boosting": False,
         }
 
-        self.dl_transform = transforms.Compose([
-            transforms.Resize(self.img_size),
-            transforms.ToTensor(),
-            transforms.Normalize(
-                mean=[0.485, 0.456, 0.406],
-                std=[0.229, 0.224, 0.225],
-            ),
-        ])
         self._discover_and_load_models()
 
     def _load_labels(self) -> List[str]:
@@ -131,6 +128,24 @@ class TrafficSignPredictor:
             except Exception as exc:
                 print(f"[WARN] Failed to load scaler: {exc}")
 
+        # On macOS, loading a LightGBM pickle after importing PyTorch can crash
+        # inside LightGBM's native __setstate__. Load LightGBM first, then import
+        # the PyTorch runtime for DL below.
+        for name in (
+            "boosting.joblib", "boost.joblib", "model.joblib",
+            "boosting_pipeline.joblib", "boosting_pipeline.pkl", "model.pkl",
+        ):
+            path = self.models_dir / name
+            if not path.is_file():
+                continue
+            try:
+                self.loaded_models["boosting"] = joblib.load(path)
+                self.model_status["boosting"] = True
+                print(f"[INFO] Loaded Boosting model from {path}")
+                break
+            except Exception as exc:
+                print(f"[WARN] Failed to load Boosting model from {path}: {exc}")
+
         dl_candidates = [
             self.models_dir / "checkpoint_best.pt",
             self.models_dir / "dl_model.pt",
@@ -139,6 +154,19 @@ class TrafficSignPredictor:
         if dl_path is not None:
             try:
                 import timm
+                import torch
+                from torchvision import transforms
+
+                self._torch = torch
+                self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+                self.dl_transform = transforms.Compose([
+                    transforms.Resize(self.img_size),
+                    transforms.ToTensor(),
+                    transforms.Normalize(
+                        mean=[0.485, 0.456, 0.406],
+                        std=[0.229, 0.224, 0.225],
+                    ),
+                ])
 
                 model = timm.create_model(
                     "tf_efficientnetv2_b0", pretrained=False, num_classes=len(self.labels)
@@ -178,21 +206,6 @@ class TrafficSignPredictor:
                 break
             except Exception as exc:
                 print(f"[WARN] Failed to load SVM from {path}: {exc}")
-
-        for name in (
-            "boosting.joblib", "boost.joblib", "model.joblib",
-            "boosting_pipeline.joblib", "boosting_pipeline.pkl", "model.pkl",
-        ):
-            path = self.models_dir / name
-            if not path.is_file():
-                continue
-            try:
-                self.loaded_models["boosting"] = joblib.load(path)
-                self.model_status["boosting"] = True
-                print(f"[INFO] Loaded Boosting model from {path}")
-                break
-            except Exception as exc:
-                print(f"[WARN] Failed to load Boosting model from {path}: {exc}")
 
     def _mock_predict(self, pipeline_key: str, top_k: int) -> Dict[str, Any]:
         start_time = time.perf_counter()
@@ -256,9 +269,9 @@ class TrafficSignPredictor:
 
             if pipeline_key == "dl":
                 tensor = self.dl_transform(img_pil.convert("RGB")).unsqueeze(0).to(self.device)
-                with torch.no_grad():
+                with self._torch.no_grad():
                     logits = self.loaded_models["dl"](tensor)
-                    probabilities = torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
+                    probabilities = self._torch.softmax(logits, dim=1).squeeze(0).cpu().numpy()
             else:
                 if self.svm_feature_config is None:
                     self._load_feature_config(self.models_dir / "boosting.joblib")
