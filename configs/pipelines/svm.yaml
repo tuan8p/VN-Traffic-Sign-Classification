@@ -1,6 +1,12 @@
 pipeline: svm
 inherits: configs/shared.yaml
 
+# Best configuration from E9-E12.  SVC is deterministic with probability=false
+# on a fixed feature store, so these seeds are retained for reproducibility even
+# though they produced identical metrics.
+seed: 2026
+experiment_seeds: [7, 21, 123, 2026]
+
 data_source:
   type: shared
   processed_root: ${SVM_PROCESSED_ROOT:data/processed}
@@ -22,7 +28,7 @@ dim_reduction:
 model:
   estimator: svc
   kernel: rbf
-  C: 1.0
+  C: 3.0
   gamma: scale
   degree: 3
   coef0: 0.0

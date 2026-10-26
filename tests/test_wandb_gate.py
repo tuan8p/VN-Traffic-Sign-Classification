@@ -19,7 +19,7 @@ def test_build_base_run_name_svm():
         "dim_reduction": {"method": "none"},
         "train": {"with_aug": True},
     }
-    assert build_base_run_name("svm", cfg) == "svm_rbf_C1.0_none_aug"
+    assert build_base_run_name("svm", cfg) == "svm_rbf_C1.0_none_aug_seed42"
 
     cfg_pca = {
         "model": {"kernel": "linear", "C": 0.5},
@@ -27,7 +27,7 @@ def test_build_base_run_name_svm():
         "train": {"with_aug": False},
         "tuning": {"enabled": True},
     }
-    assert build_base_run_name("svm", cfg_pca) == "svm_linear_C0.5_pca0.95_noaug_cv"
+    assert build_base_run_name("svm", cfg_pca) == "svm_linear_C0.5_pca0.95_noaug_cv_seed42"
 
 
 def test_build_base_run_name_boosting():

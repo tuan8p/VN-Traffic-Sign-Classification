@@ -53,10 +53,24 @@ source venv/bin/activate
 ```bash
 pip install -r requirements.txt
 # Hoặc cài đặt các gói cần thiết cho demo:
-pip install streamlit pillow pandas plotly
+pip install streamlit pillow pandas plotly scikit-learn scikit-image opencv-python-headless joblib
 ```
 
 ### Bước 3: Khởi chạy Ứng dụng Streamlit
+
+Trước khi chạy, export **đủ model và metadata** của SVM. Không chỉ copy riêng
+checkpoint, vì inference cần đúng cấu hình HOG/LBP/color của lần train đó:
+
+```bash
+mkdir -p saved_models
+cp outputs/svm/<run>/checkpoints/model.joblib saved_models/svm_pipeline.joblib
+cp outputs/svm/<run>/metadata/feature_config.json saved_models/svm_feature_config.json
+cp outputs/svm/<run>/metadata/label_map.json saved_models/svm_label_map.json
+```
+
+Ảnh đưa vào SVM phải là crop chứa một biển báo. Pipeline này là classifier,
+không có bước detector để tự tìm biển báo trong một ảnh đường phố đầy đủ.
+
 ```bash
 streamlit run demo/app.py
 ```

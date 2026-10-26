@@ -38,7 +38,8 @@ def build_base_run_name(
         with_aug = cfg.get("train", {}).get("with_aug", True)
         aug_tag = "aug" if with_aug else "noaug"
         tuning_tag = "_cv" if cfg.get("tuning", {}).get("enabled", False) else ""
-        return f"svm_{kernel}_C{c_val}_{dim_tag}_{aug_tag}{tuning_tag}"
+        seed = cfg.get("seed", 42)
+        return f"svm_{kernel}_C{c_val}_{dim_tag}_{aug_tag}{tuning_tag}_seed{seed}"
 
     elif pipeline == "boosting":
         model_cfg = cfg.get("model", {})

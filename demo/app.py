@@ -257,8 +257,15 @@ with col_output:
 
                 m1, m2, m3 = st.columns(3)
                 m1.metric("Predicted Class", res["top_class"].split(" - ")[0])
-                m2.metric("Confidence", f"{res['confidence']*100:.1f}%")
+                score_label = (
+                    "Confidence" if res.get("confidence_calibrated") is not False
+                    else "Relative score"
+                )
+                m2.metric(score_label, f"{res['confidence']*100:.1f}%")
                 m3.metric("Latency", f"{res['latency_ms']} ms")
+
+                if res.get("confidence_calibrated") is False:
+                    st.caption("SVM scores are normalized decision margins, not calibrated probabilities.")
 
                 st.caption(f"Full Descriptor: **{res['top_class']}**")
                 st.write("**Top-K Confidence Distribution:**")
@@ -280,6 +287,12 @@ with col_output:
                         res = engine.predict(input_image, key, top_k=3)
                         results[display_name] = res
                         latencies[display_name] = res["latency_ms"]
+
+                if any(result.get("confidence_calibrated") is False for result in results.values()):
+                    st.caption(
+                        "SVM uses normalized decision margins; its score is useful for ranking "
+                        "but is not directly comparable to calibrated model probabilities."
+                    )
 
                 # Metric Cards Comparison
                 m_cols = st.columns(3)
