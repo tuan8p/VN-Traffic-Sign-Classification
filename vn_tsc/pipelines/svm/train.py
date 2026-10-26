@@ -20,6 +20,7 @@ from vn_tsc.pipelines.svm.tuning import tune_svm
 from vn_tsc.runtime.pack import zip_run_dir
 from vn_tsc.runtime.wandb_gate import generate_run_name, require_wandb
 from vn_tsc.utils.io import load_json, save_json, save_yaml
+from vn_tsc.utils.seed import set_seed
 
 log = logging.getLogger(__name__)
 
@@ -91,6 +92,7 @@ class SVMPipeline(BasePipeline):
 
     def fit(self) -> dict[str, Any]:
         """Train on metadata train split and evaluate on validation by default."""
+        set_seed(int(self.cfg.get("seed", 42)))
         project = self.cfg["project"]
         run_name = generate_run_name(
             "svm", self.cfg,

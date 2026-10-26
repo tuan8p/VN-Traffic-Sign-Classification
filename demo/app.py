@@ -16,9 +16,11 @@ from PIL import Image
 # =========================================================
 
 CURRENT_DIR = Path(__file__).resolve().parent
+REPO_ROOT = CURRENT_DIR.parent
 
-if str(CURRENT_DIR) not in sys.path:
-    sys.path.insert(0, str(CURRENT_DIR))
+for import_root in (REPO_ROOT, CURRENT_DIR):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from inference import TrafficSignPredictor
 
@@ -434,6 +436,11 @@ with col_output:
     if not results:
         st.info("Hãy tải ảnh lên hoặc chọn ảnh mẫu, sau đó nhấn “Chạy nhận diện và so sánh mô hình” để xem kết quả.")
     else:
+        if any(result.get("confidence_calibrated") is False for result in results.values()):
+            st.caption(
+                "Điểm SVM là decision margin đã chuẩn hóa để xếp hạng, không phải "
+                "xác suất đã hiệu chỉnh và không nên so sánh trực tiếp với xác suất DL/Boosting."
+            )
         model_cols = st.columns(3, gap="medium")
 
         for index, (main_title, sub_title, key) in enumerate(PIPELINES):

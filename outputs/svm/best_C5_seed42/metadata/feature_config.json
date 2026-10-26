@@ -1,0 +1,33 @@
+{
+  "backend": "shared",
+  "input_size": [
+    64,
+    64
+  ],
+  "hog": {
+    "enabled": true,
+    "orientations": 9,
+    "pixels_per_cell": [
+      8,
+      8
+    ],
+    "cells_per_block": [
+      2,
+      2
+    ]
+  },
+  "lbp": {
+    "enabled": true,
+    "p": 8,
+    "r": 1,
+    "grid": [
+      4,
+      4
+    ]
+  },
+  "color_hist": {
+    "enabled": true,
+    "bins": 32,
+    "color_space": "hsv"
+  }
+}

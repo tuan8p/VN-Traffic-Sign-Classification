@@ -2,8 +2,8 @@
 
 Ứng dụng web (**Streamlit**) để **suy luận và so sánh** trên cùng một ảnh biển báo:
 
-1. **Deep Learning** — EfficientNetV2-B0 (`timm`), ảnh RGB 224×224, ImageNet normalize  
-2. **SVM** — vector 2020 chiều (HOG + LBP + HSV histogram), hỗ trợ **OvO → xác suất qua voting**  
+1. **Deep Learning** — EfficientNetV2-B0 (`timm`), ảnh RGB 224×224, ImageNet normalize
+2. **SVM** — vector 2020 chiều (HOG + LBP + HSV histogram), hỗ trợ **OvO → điểm xếp hạng theo decision margin**
 3. **Gradient Boosting** — LightGBM trên cùng vector + `StandardScaler`
 
 Nhãn hiển thị: **mã biển + tên tiếng Việt** (52 lớp), đọc từ `class_table.csv`.
@@ -63,6 +63,14 @@ saved_models/
 
 Repo có thể kèm sẵn metadata JSON trong `saved_models/` (báo cáo test) — **không** thay thế file model.
 
+Nếu dùng checkpoint pipeline được tạo bởi `SVMPipeline.fit`, copy đủ model và
+metadata feature của chính run đó:
+
+```bash
+cp outputs/svm/<run_id>/checkpoints/model.joblib saved_models/svm_pipeline.joblib
+cp outputs/svm/<run_id>/metadata/feature_config.json saved_models/svm_feature_config.json
+```
+
 ## Hành vi UI
 
 - **Hai cột:** nhập ảnh (trái) / kết quả & biểu đồ (phải).
@@ -75,9 +83,13 @@ Repo có thể kèm sẵn metadata JSON trong `saved_models/` (báo cáo test) �
 
 ## Lưu ý kỹ thuật (fair compare)
 
-- Demo **crop/resize ảnh full-frame** do người dùng upload; **không** chạy YOLO detect như pipeline preprocess.
-- DL dùng pipeline ảnh giống train (224, normalize). ML **trích xuất lại** HOG/LBP/color tại **64×64** (cùng tinh thần `vn_tsc/features/classical.py`); cần **`scaler.joblib` đúng** với lúc train thì SVM/Boosting mới khớp metric offline.
-- SVM không có `predict_proba`: app dùng `decision_function` + **OvO voting** (1326 cặp → 52 lớp).
+- Demo **không chạy detector YOLO**. Ảnh đưa vào SVM/Boosting phải là crop chứa
+  một biển báo; nguyên ảnh đường phố sẽ cho kết quả không đáng tin cậy.
+- DL dùng pipeline ảnh 224×224 + ImageNet normalize. ML gọi trực tiếp bộ trích
+  xuất HOG/LBP/color 64×64 dùng khi train; nếu model tách rời thì cần đúng
+  `scaler.joblib`, còn sklearn Pipeline đã chứa scaler sẽ không scale lần hai.
+- SVM `probability=false` dùng decision margin OvO để xếp hạng. Điểm hiển thị
+  không phải xác suất đã hiệu chỉnh.
 - GPU: DL tự dùng CUDA nếu có; ML chủ yếu CPU.
 
 ## Khắc phục sự cố
