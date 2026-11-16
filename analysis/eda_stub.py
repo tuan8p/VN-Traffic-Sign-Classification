@@ -1,4 +1,4 @@
-"""Kept for the original scaffold's entry point; the EDA lives in analysis/eda.py."""
+"""CLI entry-point wrapper; the EDA implementation lives in analysis/eda.py."""
 from __future__ import annotations
 
 from analysis.eda import main

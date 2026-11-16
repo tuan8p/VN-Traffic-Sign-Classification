@@ -45,7 +45,7 @@ class Sample:
 
     @property
     def path(self) -> Path:
-        """Kept for the original scaffold's interface; crops live in a .npy."""
+        """Logical identifier for the crop; images live in .npy arrays."""
         return Path(f"{self.split}#{self.array_index}")
 
     @property

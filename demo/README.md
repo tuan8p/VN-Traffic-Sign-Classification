@@ -45,7 +45,7 @@ Mặc định engine tìm **`saved_models/`** ở root repo. Các file được 
 ```text
 saved_models/
 ├── class_table.csv          # Khuyến nghị: 52 dòng (sign_code, name_vi, …)
-├── scaler.joblib            # StandardScaler fit trên train (ML)
+├── scaler.joblib            # StandardScaler fit trên train (SVM / LightGBM)
 ├── checkpoint_best.pt       # DL — ưu tiên (state_dict PyTorch)
 │   # hoặc dl_model.pt
 ├── svm.joblib               # SVM (cũng thử: svm.pkl, svm_pipeline.joblib, …)
@@ -57,7 +57,7 @@ saved_models/
 | Pipeline | Nguồn gợi ý |
 | ---------- | ------------- |
 | DL | `outputs/dl/<run_id>/checkpoints/checkpoint_best.pt` → `saved_models/checkpoint_best.pt` |
-| SVM | `outputs/svm/<run_id>/checkpoints/` (model + scaler) hoặc artifact team export |
+| SVM | `outputs/svm/<run_id>/checkpoints/` (model + scaler) hoặc artifact đã đóng gói |
 | Boosting | `outputs/boosting/<run_id>/checkpoints/model.joblib` + `data/processed/features/scaler.joblib` → `scaler.joblib` |
 | Nhãn | `data/processed/class_table.csv` → `saved_models/class_table.csv` |
 

@@ -1,9 +1,7 @@
-"""Temporary classical feature extraction used by Role B.
+"""Standalone classical feature extraction helper for the SVM dev backend.
 
-This exists only to allow independent SVM development before Role D
-provides the shared HOG/LBP/color feature implementation.
-
-Do not treat these features as the final fair-comparison implementation.
+The shared feature store under `vn_tsc.features.classical` should be used
+for final cross-model experiments.
 """
 
 from __future__ import annotations

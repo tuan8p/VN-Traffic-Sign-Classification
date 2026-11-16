@@ -1,4 +1,4 @@
-# LOCKED fair-compare keys — change only by team agreement
+# Shared configuration keys for fair comparison across all pipelines
 project:
   name: VN-Traffic-Sign-Classification
   wandb_entity: P4AIDS_ML
@@ -24,7 +24,7 @@ preprocess:
   color_mode: rgb
   keep_aspect: true
   cache_format: npy
-  # --- bbox -> classification crop (proposed by team-preprocessing) ---
+  # --- bbox -> classification crop ---
   bbox_crop:
     enabled: true
     # Expand each bbox by this fraction per side before cropping. Traffic signs
@@ -46,7 +46,7 @@ split:
   strategy: stratified_group
   ratios: { train: 0.7, val: 0.15, test: 0.15 }
   use_provided_splits: false
-  # --- leakage control (proposed by team-preprocessing) ---
+  # --- leakage control ---
   # VNTS frames come from video: near-identical frames exist across the set, and
   # several crops share one source image. Both must stay inside one split, so we
   # group by perceptual-hash cluster of the SOURCE IMAGE and split by group.

@@ -19,7 +19,7 @@ def to_feature_image(image: np.ndarray, input_size: tuple[int, int]) -> np.ndarr
     """Shrink a cached crop to the size the classical features run at.
 
     HOG on the full 224x224 cache with 8px cells is 26,244-D; an RBF SVM over
-    that many dimensions and ~13k samples does not finish in a course project.
+    that many dimensions and ~13k samples becomes computationally expensive.
     At 64x64 the same cell geometry gives 1,764-D and keeps the sign's outline.
     """
     w, h = input_size

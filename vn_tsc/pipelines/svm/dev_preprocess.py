@@ -1,9 +1,8 @@
-"""Temporary development preprocessing for the SVM pipeline.
+"""Standalone development preprocessing for the SVM pipeline.
 
-This module exists only so Role B can develop independently before the
-shared preprocessing pipeline from Role D is available.
-
-Do not use this module as the final fair-comparison preprocessing.
+Provides stratified preprocessing for class-folder image layouts.
+The shared pipeline under `vn_tsc.data.preprocess_offline` should be used
+for final cross-model experiments.
 """
 
 from __future__ import annotations

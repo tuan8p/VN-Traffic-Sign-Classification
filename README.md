@@ -1,127 +1,133 @@
 # VN Traffic Sign Classification
 
-Fair comparison of **classical ML** (SVM, LightGBM) and **deep learning** (EfficientNetV2) on **52 Vietnamese traffic sign classes**, built from the [VNTS](https://www.kaggle.com/datasets/maitam/vietnamese-traffic-signs) detection dataset converted to **crop-level classification**.
+Hệ thống phân loại **52 lớp biển báo giao thông Việt Nam** trên bộ dữ liệu [VNTS](https://www.kaggle.com/datasets/maitam/vietnamese-traffic-signs), cho phép so sánh công bằng ba hướng tiếp cận trên cùng quy trình tiền xử lý, chia tập chống rò rỉ và bộ chỉ số đánh giá thống nhất:
 
-Course / team project (P4AIDS + Machine Learning). Shared preprocessing, locked metrics, and a single processed store keep experiments comparable across pipelines.
-
----
-
-## Highlights
-
-- **One preprocess → three trainers:** shared crops (`X_*.npy`), classical features (`F_*.npy`), stratified splits, offline augmentation (no horizontal flip — mirror-pair classes).
-- **Pipelines:** `vn_tsc/pipelines/{svm,boosting,dl}/` with YAML config merge (`configs/shared.yaml` + pipeline + runtime).
-- **Primary metric:** **macro-F1** on validation (early stopping / checkpoint selection); test for final reporting.
-- **Streamlit demo:** side-by-side inference and latency for DL, SVM, and Boosting ([demo/README.md](demo/README.md)).
-- **EDA:** report figures from `metadata.csv` ([analysis/README.md](analysis/README.md)).
+1. **LightGBM** — Gradient Boosting trên vector đặc trưng thủ công 2020 chiều (HOG + LBP + histogram màu HSV).
+2. **SVM (RBF)** — Support Vector Classifier trên cùng vector đặc trưng 2020 chiều.
+3. **EfficientNetV2-B0** — Mạng nơ-ron tích chập tinh chỉnh từ trọng số tiền huấn luyện trên ảnh RGB `224×224`.
 
 ---
 
-## Repository layout
+## Cấu trúc thư mục
 
 ```text
 VN-Traffic-Sign-Classification/
-├── analysis/           # EDA scripts & figures (no W&B)
+├── analysis/             # Kịch bản phân tích dữ liệu (EDA) và biểu đồ thống kê
 ├── configs/
-│   ├── shared.yaml     # Fair-compare keys (seed, splits, metrics, augment rules)
-│   ├── classes.csv     # 52 classes, mirror pairs, confusable groups
-│   ├── pipelines/      # svm.yaml, boosting.yaml, dl.yaml
-│   └── runtime/        # local.yaml, kaggle_2xt4.yaml
-├── demo/               # Streamlit app + inference engine
-├── saved_models/       # Demo deployment artifacts (checkpoints, scaler, class_table)
-├── tools/              # CLI entrypoints (preprocess, train, eval, pack)
-├── vn_tsc/             # Library: data, features, pipelines, eval, runtime
-├── data/               # Local data root (raw + processed; often gitignored)
-└── outputs/            # Training runs (metrics, checkpoints, figures)
+│   ├── shared.yaml       # Cấu hình dùng chung (seed, tỉ lệ chia tập, đặc trưng, augment, metrics)
+│   ├── classes.csv       # Danh mục 52 lớp biển báo, cặp đối xứng gương và nhóm dễ nhầm
+│   ├── pipelines/        # Cấu hình riêng cho boosting.yaml, svm.yaml, dl.yaml
+│   └── runtime/          # Cấu hình phần cứng (local.yaml, kaggle_2xt4.yaml)
+├── data/                 # Thư mục chứa dữ liệu gốc (raw/) và dữ liệu đã xử lý (processed/)
+├── demo/                 # Ứng dụng web Streamlit và động cơ suy luận hợp nhất
+├── manual_test_images/   # Ảnh thử nghiệm bổ sung ngoài tập dữ liệu chuẩn
+├── outputs/              # Nơi lưu kết quả các lần chạy (metrics, checkpoint, hình ảnh)
+├── saved_models/         # Trọng số và metadata phục vụ chạy demo trực tiếp
+├── tools/                # Giao diện dòng lệnh (preprocess, train, eval, pack, plot)
+├── vn_tsc/               # Thư viện lõi (data, features, pipelines, eval, runtime, utils)
+├── .env.example          # Mẫu biến môi trường (DATA_ROOT, WANDB_API_KEY)
+├── pyproject.toml        # Khai báo gói cài đặt và entry points
+└── requirements.txt      # Danh sách thư viện phụ thuộc
 ```
 
 ---
 
-## Requirements
+## Yêu cầu hệ thống & Cài đặt
 
 - **Python ≥ 3.10**
-- **GPU:** optional for SVM/Boosting; recommended for DL (Kaggle 2×T4 supported via DDP).
-- **Weights & Biases:** required for `tools.run_train` unless disabled (`--no-wandb` / config).
+- **Phần cứng:** CPU đủ cho tiền xử lý, EDA, SVM, LightGBM và chạy demo; khuyến nghị có GPU khi huấn luyện EfficientNetV2-B0 (hỗ trợ đa GPU qua DDP).
 
----
-
-## Installation
+Khởi tạo môi trường ảo và cài đặt thư viện từ thư mục gốc repository:
 
 ```bash
 python -m venv .venv
 # Windows PowerShell:
-#   .\.venv\Scripts\Activate.ps1
-# Linux/macOS:
-#   source .venv/bin/activate
+.\.venv\Scripts\Activate.ps1
+# Linux / macOS:
+source .venv/bin/activate
 
 pip install -U pip
 pip install -r requirements.txt
-# or modular install:
-# pip install -e ".[boosting,dl,demo,dev]"
+pip install -e .
 ```
 
-Copy environment template and set paths / W&B:
+Nếu sử dụng Weights & Biases hoặc đặt đường dẫn dữ liệu mặc định, tạo tệp `.env` từ mẫu:
 
 ```bash
 cp .env.example .env
-# WANDB_API_KEY=...
-# DATA_ROOT=...   # folder containing VNTS YOLO layout
+# Điền WANDB_API_KEY=... và DATA_ROOT=... (thư mục chứa dataset VNTS định dạng YOLO)
 ```
 
 ---
 
-## Workflow
+## Hướng dẫn chạy
 
-### 1. Offline preprocess (team-shared)
+### 1. Tiền xử lý offline (dùng chung cho cả 3 pipeline)
 
-Turns YOLO boxes into fixed **224×224 RGB crops**, writes `data/processed/`, extracts **HOG + LBP + color** features at 64×64, optional offline aug:
-
-```bash
-python -m tools.run_preprocess --data-root <path-to-VNTS>
-```
-
-Typical outputs: `images/X_{train,val,test}.npy`, `features/F_*.npy`, `metadata.csv`, `class_table.csv`, `scaler.joblib`.
-
-**Kaggle:** attach a preprocessed dataset and point trainers at it, e.g.:
+Chuyển đổi các bounding box YOLO của VNTS thành ảnh crop `224×224` RGB (nới lề 15%, loại box có cạnh ngắn dưới 12 px, letterbox với giá trị đệm 114), gom cụm chống rò rỉ bằng mã dHash 256-bit, chia tập theo cụm `70% / 15% / 15%`, tăng cường dữ liệu offline trên tập `train` và trích xuất ma trận đặc trưng `64×64` (2020 chiều):
 
 ```bash
-set SVM_PROCESSED_ROOT=/kaggle/input/.../vnts-processed
-python -m tools.run_train --pipeline svm --data-root %SVM_PROCESSED_ROOT%
+python -m tools.run_preprocess --data-root <duong-dan-toi-VNTS> --out data/processed
 ```
 
-### 2. EDA (optional, no W&B)
+Đầu ra mặc định tại `data/processed/`:
+
+- `images/X_{train,val,test,train_aug}.npy`, `images/y_*.npy`
+- `features/F_{train,val,test,train_aug}.npy`, `features/scaler.joblib`, `features/feature_report.json`
+- `metadata.csv`, `class_table.csv`, `preprocess_report.json`
+
+Tùy chọn hữu ích:
+
+- `--skip-crops`: giữ nguyên kho ảnh crop, chỉ trích xuất lại đặc trưng cổ điển.
+- `--no-augment`: bỏ qua bước sinh dữ liệu tăng cường offline.
+
+### 2. Phân tích dữ liệu (EDA, không cần W&B)
 
 ```bash
 python -m analysis.eda --processed data/processed --out analysis/figures
 ```
 
-### 3. Train
+Chi tiết các biểu đồ và bảng tóm tắt xem tại [analysis/README.md](analysis/README.md).
+
+### 3. Huấn luyện mô hình
+
+Mặc định các lệnh huấn luyện ghi log lên Weights & Biases. Nếu chạy cục bộ không dùng W&B, thêm cờ `--no-wandb` (hoặc đặt `WANDB_MODE=offline`).
 
 ```bash
-python -m tools.run_train --pipeline svm
-python -m tools.run_train --pipeline boosting
-python -m tools.run_train --pipeline dl --runtime configs/runtime/local.yaml
-```
+# LightGBM
+python -m tools.run_train --pipeline boosting --data-root data/processed
 
-DL on **2× GPU** (example):
+# SVM (RBF)
+python -m tools.run_train --pipeline svm --data-root data/processed
 
-```bash
+# EfficientNetV2-B0 (1 GPU cục bộ)
+python -m tools.run_train --pipeline dl --runtime configs/runtime/local.yaml --data-root data/processed
+
+# EfficientNetV2-B0 (2 GPU qua torchrun)
 torchrun --nproc_per_node=2 -m tools.run_train --pipeline dl \
   --config configs/pipelines/dl.yaml \
   --runtime configs/runtime/kaggle_2xt4.yaml \
-  --data-root <processed_root>
+  --data-root data/processed
 ```
 
-### 4. Evaluate & pack
+Mỗi lần chạy sẽ lưu đầy đủ `resolved_config.yaml`, `metrics.json`, `history.json`, `figures/` và `checkpoints/` vào `outputs/<pipeline>/<run_id>/`.
+
+### 4. Đánh giá lại, vẽ đồ thị & đóng gói
 
 ```bash
-python -m tools.run_eval --pipeline dl --run-dir outputs/dl/<run_id>
-python -m tools.pack_outputs --run-dir outputs/svm/<run_id>
-python -m tools.plot_from_json --run-dir outputs/dl/<run_id>
+# Đánh giá một checkpoint đã lưu trên tập val hoặc test
+python -m tools.run_eval --pipeline dl --run-dir outputs/dl/<run_id> --split test
+
+# Đóng gói kết quả một lần chạy thành file zip
+python -m tools.pack_outputs --run-dir outputs/boosting/<run_id>
+
+# Vẽ lại đường cong huấn luyện từ history.json
+python -m tools.plot_from_json --history outputs/dl/<run_id>/history.json --out-dir outputs/dl/<run_id>/figures
 ```
 
-### 5. Demo
+### 5. Chạy ứng dụng Demo (Streamlit)
 
-Deploy checkpoints under `saved_models/` (see [demo/README.md](demo/README.md)), then:
+Đảm bảo thư mục `saved_models/` chứa đầy đủ các tệp trọng số (`checkpoint_best.pt`, `svm.joblib`, `boosting.joblib`, `scaler.joblib`, `class_table.csv` — xem hướng dẫn chi tiết trong [demo/README.md](demo/README.md)), sau đó khởi chạy từ thư mục gốc repository:
 
 ```bash
 streamlit run demo/app.py
@@ -129,56 +135,22 @@ streamlit run demo/app.py
 
 ---
 
-## Configuration
+## Lưu ý quan trọng
 
-| Layer | Path | Role |
-| ------- | ------ | ------ |
-| Shared contract | `configs/shared.yaml` | Seed, split ratios, image size, **no hflip**, metric names, rare-class threshold |
-| Class ontology | `configs/classes.csv` | IDs, sign codes, Vietnamese names, mirror/confusable metadata |
-| Pipeline | `configs/pipelines/*.yaml` | Model & train hyperparameters |
-| Runtime | `configs/runtime/*.yaml` | Device, `num_workers`, DDP |
-| Resolved run config | `outputs/<pipeline>/<run_id>/resolved_config.yaml` | Effective config after merge + notebook overrides |
-
-Override at CLI: `--config`, `--runtime`, `--data-root`, `--run-name`, `--run-dir`.
+1. **Cố định tập chia và không dùng phép lật ngang (`hflip: false`):** Bộ VNTS chứa 5 cặp lớp đối xứng gương (ví dụ cấm rẽ trái/cấm rẽ phải, ngoặt trái/ngoặt phải) và nhiều khung hình video liên tiếp. Luôn dùng chung đầu ra của `tools.run_preprocess` để bảo toàn tính công bằng và không rò rỉ dữ liệu giữa `train`, `val`, `test`.
+2. **Tiêu chí chọn mô hình:** Dữ liệu mất cân bằng mạnh (tỉ lệ 357:1, lớp 44 chỉ có 3 mẫu và không có trong tập `test`). Mọi cấu hình được chọn dựa trên **macro-F1 trên tập `val`**; tập `test` chỉ dùng để đánh giá cuối cùng.
+3. **Đầu vào của Demo / Inference:** Ứng dụng demo không tích hợp bộ phát hiện đối tượng (YOLO); ảnh tải lên phải là **ảnh crop chứa một biển báo**.
+4. **Độ tương thích thư viện:** Tệp `scaler.joblib` và `svm.joblib` được lưu với `scikit-learn==1.6.1`. Nên cài đúng phiên bản trong `requirements.txt` để tránh cảnh báo không tương thích khi nạp lại mô hình.
+5. **Điểm tin cậy của SVM:** Mô hình SVM cấu hình mặc định tắt `probability` nên điểm hiển thị trong demo là decision margin đã chuẩn hóa theo softmax để xếp hạng, không phải xác suất hiệu chỉnh.
 
 ---
 
-## Run artifacts
-
-Each training run creates:
-
-```text
-outputs/<pipeline>/<run_id>/
-  resolved_config.yaml
-  metrics.json          # validation (+ test if auto_eval_test)
-  history.json
-  figures/              # confusion matrix, curves
-  checkpoints/          # best model
-  run.zip               # optional bundle (config flag)
-```
-
----
-
-## Fair comparison rules (summary)
-
-1. **Same splits** — do not augment val/test; `train.with_aug` only affects training features/crops.
-2. **No horizontal flip** — mirror-pair classes (see `configs/shared.yaml`).
-3. **Select configs by validation macro-F1**, not test, when tuning ablations.
-4. **Report** accuracy, macro-F1, weighted-F1; macro-F1 on **common** (non-rare) classes where applicable.
-
----
-
-## Development
+## Kiểm tra định dạng mã nguồn
 
 ```bash
-pytest
 ruff check vn_tsc tools demo analysis
 ```
 
-Package entry points (after `pip install -e .`): `vn-tsc-preprocess`, `vn-tsc-train`, `vn-tsc-eval`, `vn-tsc-pack`.
+## Giấy phép
 
----
-
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT — xem [LICENSE](LICENSE).

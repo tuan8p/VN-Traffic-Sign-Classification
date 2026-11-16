@@ -15,7 +15,7 @@ Exploratory Data Analysis trên **kho đã preprocess** (`data/processed/`), ph�
 | File | Vai trò |
 |------|---------|
 | `eda.py` | Logic EDA: vẽ figure, ghi JSON/CSV tóm tắt |
-| `eda_stub.py` | Entry point tương thích scaffold cũ → gọi `eda.main()` |
+| `eda_stub.py` | Wrapper gọi `eda.main()` |
 
 **Input bắt buộc** (sau `python -m tools.run_preprocess`):
 
