@@ -211,15 +211,11 @@ class TrafficSignPredictor:
         start_time = time.perf_counter()
         time.sleep(0.007)
         k = min(top_k, len(self.labels))
-        scores = [random.uniform(0.1, 1.0) for _ in range(k)]
-        total = sum(scores) + random.uniform(0.05, 0.25)
-        normalized = sorted((score / total for score in scores), reverse=True)
         chosen = random.sample(self.labels, k=k)
         return {
             "top_class": chosen[0],
-            "confidence": normalized[0],
             "latency_ms": round((time.perf_counter() - start_time) * 1000, 2),
-            "predictions": dict(zip(chosen, normalized)),
+            "predictions": chosen,
             "is_mock": True,
         }
 
@@ -236,24 +232,21 @@ class TrafficSignPredictor:
                 f"{features.shape[1]}; use metadata from the same training run."
             )
         predicted_id = int(np.asarray(model.predict(features))[0])
-        classes, scores, calibrated = svm_class_scores(model, features)
+        classes, scores, _calibrated = svm_class_scores(model, features)
         ranked = np.argsort(scores)[::-1].tolist()
         predicted_position = np.flatnonzero(classes == predicted_id)
         if predicted_position.size and ranked[0] != int(predicted_position[0]):
             ranked.remove(int(predicted_position[0]))
             ranked.insert(0, int(predicted_position[0]))
         ranked = ranked[:min(max(1, top_k), len(classes))]
-        predictions = {
-            self.labels[int(classes[position])]: round(float(scores[position]), 4)
+        predictions = [
+            self.labels[int(classes[position])]
             for position in ranked
-        }
-        score_position = int(np.flatnonzero(classes == predicted_id)[0])
+        ]
         return {
             "top_class": self.labels[predicted_id],
-            "confidence": float(scores[score_position]),
             "predictions": predictions,
             "is_mock": False,
-            "confidence_calibrated": calibrated,
         }
 
     def predict(self, img_pil: Image.Image, pipeline_key: str, top_k: int = 5) -> Dict[str, Any]:
@@ -288,14 +281,12 @@ class TrafficSignPredictor:
             top_indices = np.argsort(probabilities)[::-1][:k]
             return {
                 "top_class": self.labels[int(top_indices[0])],
-                "confidence": float(probabilities[top_indices[0]]),
                 "latency_ms": round((time.perf_counter() - start_time) * 1000, 2),
-                "predictions": {
-                    self.labels[int(index)]: round(float(probabilities[index]), 4)
+                "predictions": [
+                    self.labels[int(index)]
                     for index in top_indices
-                },
+                ],
                 "is_mock": False,
-                "confidence_calibrated": True,
             }
         except Exception as exc:
             raise RuntimeError(f"Inference failed for loaded model '{pipeline_key}': {exc}") from exc

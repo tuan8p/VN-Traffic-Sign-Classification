@@ -6,7 +6,6 @@ import sys
 from pathlib import Path
 
 import pandas as pd
-import plotly.express as px
 import plotly.graph_objects as go
 import streamlit as st
 from PIL import Image
@@ -251,42 +250,6 @@ def get_sign_info(raw_label: object) -> dict[str, str]:
 # BIỂU ĐỒ
 # =========================================================
 
-def plot_confidence_comparison(results: dict[str, dict]) -> go.Figure:
-    records = []
-    for model_name, result in results.items():
-        for rank, (label, confidence) in enumerate(result.get("predictions", {}).items(), start=1):
-            sign = get_sign_info(label)
-            records.append({
-                "Mô hình": model_name,
-                "Biển báo": f"Top-{rank}: {sign['display']}",
-                "Độ tin cậy": float(confidence),
-                "Thứ hạng": rank,
-            })
-
-    df = pd.DataFrame(records)
-    fig = px.bar(
-        df,
-        x="Biển báo",
-        y="Độ tin cậy",
-        color="Mô hình",
-        barmode="group",
-        color_discrete_map=PALETTE,
-        text=df["Độ tin cậy"].map(lambda val: f"{val:.1%}"),
-    )
-    fig.update_traces(textposition="outside", cliponaxis=False)
-    fig.update_layout(
-        height=420,
-        margin=dict(l=10, r=20, t=45, b=120),
-        paper_bgcolor="rgba(0,0,0,0)",
-        plot_bgcolor="rgba(0,0,0,0)",
-        legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
-        xaxis=dict(title="Biển báo dự đoán", showgrid=False, tickangle=-25),
-        yaxis=dict(title="Độ tin cậy", range=[0, 1.18], tickformat=".0%", gridcolor="rgba(128,128,128,0.15)"),
-        font=dict(family="Arial, sans-serif", size=11),
-    )
-    return fig
-
-
 def plot_latency_comparison(latencies: dict[str, float]) -> go.Figure:
     models = list(latencies.keys())
     values = list(latencies.values())
@@ -384,7 +347,7 @@ with col_input:
             min_value=1,
             max_value=5,
             value=3,
-            help="Số lớp biển báo có độ tin cậy cao nhất của mỗi mô hình.",
+            help="Số lớp biển báo dự đoán hàng đầu của mỗi mô hình.",
         )
 
         if input_image is not None:
@@ -436,11 +399,6 @@ with col_output:
     if not results:
         st.info("Hãy tải ảnh lên hoặc chọn ảnh mẫu, sau đó nhấn “Chạy nhận diện và so sánh mô hình” để xem kết quả.")
     else:
-        if any(result.get("confidence_calibrated") is False for result in results.values()):
-            st.caption(
-                "Điểm SVM là decision margin đã chuẩn hóa để xếp hạng, không phải "
-                "xác suất đã hiệu chỉnh và không nên so sánh trực tiếp với xác suất DL/Boosting."
-            )
         model_cols = st.columns(3, gap="medium")
 
         for index, (main_title, sub_title, key) in enumerate(PIPELINES):
@@ -473,14 +431,7 @@ with col_output:
                     st.markdown(f'<div class="sign-name">{sign["name"]}</div>', unsafe_allow_html=True)
                     st.divider()
 
-                    # 3. Độ tin cậy
-                    st.markdown('<div class="section-label">ĐỘ TIN CẬY</div>', unsafe_allow_html=True)
-                    st.markdown(
-                        f'<div class="metric-container"><div class="metric-number">{float(result["confidence"]):.1%}</div></div>',
-                        unsafe_allow_html=True,
-                    )
-
-                    # 4. Thời gian suy luận
+                    # 3. Thời gian suy luận
                     st.markdown('<div class="section-label">THỜI GIAN SUY LUẬN</div>', unsafe_allow_html=True)
                     st.markdown(
                         f'<div class="metric-container"><div class="metric-number">{float(result["latency_ms"]):.2f} ms</div></div>',
@@ -488,33 +439,27 @@ with col_output:
                     )
 
         st.divider()
-        st.subheader("3. So sánh độ tin cậy")
-        st.caption("So sánh điểm tin cậy của các lớp biển báo được dự đoán.")
-
-        tab_confidence, tab_latency = st.tabs(["Độ tin cậy dự đoán", "Thời gian suy luận"])
-
-        with tab_confidence:
-            st.plotly_chart(plot_confidence_comparison(results), width="stretch")
-
-        with tab_latency:
-            st.caption("Thời gian tính bằng mili giây (ms) — giá trị thấp hơn thể hiện tốc độ nhanh hơn.")
-            st.plotly_chart(plot_latency_comparison(latencies), width="stretch")
+        st.subheader("3. So sánh thời gian suy luận")
+        st.caption("Thời gian tính bằng mili giây (ms) — giá trị thấp hơn thể hiện tốc độ nhanh hơn.")
+        st.plotly_chart(plot_latency_comparison(latencies), width="stretch")
 
         st.divider()
-        st.subheader("4. Chi tiết các dự đoán")
+        st.subheader("4. Chi tiết các dự đoán (Top-K)")
+        st.caption("Danh sách các lớp biển báo dự đoán theo thứ tự ưu tiên của từng mô hình.")
 
         detail_rows = []
         for main_title, sub_title, _ in PIPELINES:
             full_display_name = f"{main_title} {sub_title}"
             result = results[full_display_name]
-            for rank, (label, confidence) in enumerate(result.get("predictions", {}).items(), start=1):
+            raw_preds = result.get("predictions", [])
+            pred_list = list(raw_preds.keys()) if isinstance(raw_preds, dict) else list(raw_preds)
+            for rank, label in enumerate(pred_list, start=1):
                 sign = get_sign_info(label)
                 detail_rows.append({
                     "Mô hình": full_display_name,
-                    "Thứ hạng": rank,
+                    "Thứ hạng": f"Top-{rank}",
                     "Mã biển báo": sign["code"],
                     "Tên biển báo": sign["name"],
-                    "Độ tin cậy (%)": float(confidence) * 100.0,
                 })
 
         detail_df = pd.DataFrame(detail_rows)
@@ -522,12 +467,4 @@ with col_output:
             detail_df,
             width="stretch",
             hide_index=True,
-            column_config={
-                "Độ tin cậy (%)": st.column_config.ProgressColumn(
-                    "Độ tin cậy (%)",
-                    format="%.1f%%",
-                    min_value=0.0,
-                    max_value=100.0,
-                ),
-            },
         )

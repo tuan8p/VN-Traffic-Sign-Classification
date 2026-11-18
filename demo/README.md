@@ -75,7 +75,7 @@ cp outputs/svm/<run_id>/metadata/feature_config.json saved_models/svm_feature_co
 
 - **Hai cột:** nhập ảnh (trái) / kết quả & biểu đồ (phải).
 - **Nguồn ảnh:** upload (PNG, JPG, WEBP, …) hoặc **Thư viện ảnh mẫu** (`demo/sample_images/`).
-- **Top-K:** 1–5 lớp có xác suất cao nhất **mỗi** model.
+- **Top-K:** 1–5 lớp dự đoán hàng đầu của **mỗi** model.
 - Nút **「Chạy nhận diện và so sánh mô hình」** chạy lần lượt cả 3 pipeline trên cùng ảnh.
 - **Trạng thái:**
   - *Mô hình thực thi* — load weight thành công (`is_mock=False`).
@@ -88,8 +88,7 @@ cp outputs/svm/<run_id>/metadata/feature_config.json saved_models/svm_feature_co
 - DL dùng pipeline ảnh 224×224 + ImageNet normalize. ML gọi trực tiếp bộ trích
   xuất HOG/LBP/color 64×64 dùng khi train; nếu model tách rời thì cần đúng
   `scaler.joblib`, còn sklearn Pipeline đã chứa scaler sẽ không scale lần hai.
-- SVM `probability=false` dùng decision margin OvO để xếp hạng. Điểm hiển thị
-  không phải xác suất đã hiệu chỉnh.
+- SVM `probability=false` dùng decision margin OvO để xếp hạng các lớp dự đoán.
 - GPU: DL tự dùng CUDA nếu có; ML chủ yếu CPU.
 
 ## Khắc phục sự cố
